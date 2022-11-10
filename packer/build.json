@@ -1,88 +1,111 @@
+
 {
   "variables": {
-    "disk_size": "7500",
-    "memory": "10G",
-    "cpus": "2",
-    "headless": "true",
-    "iso_url": "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-9.9.0-amd64-netinst.iso",
-    "iso_checksum": "d4a22c81c76a66558fb92e690ef70a5d67c685a08216701b15746586520f6e8e",
-    "version": "{{ env `VERSION`}}",
-    "ansible_args": "{{ env `ANSIBLE_ARGS`}}"
+  "cpus": "6",
+  "disk_size": "10000",
+  "headless": "true",
+  "iso_checksum": "e307d0e583b4a8f7e5b436f8413d4707dd4242b70aea61eb08591dc0378522f3",
+  "iso_url": "https://cdimage.debian.org/mirror/cdimage/release/11.5.0/amd64/iso-cd/debian-11.5.0-amd64-netinst.iso",
+  "memory": "8G",
+  "version": "{{ env `VERSION`}}"
   },
   "builders": [
     {
-      "name": "qemu",
-      "type": "qemu",
-      "format": "raw",
-      "headless": "{{ user `headless` }}",
       "accelerator": "kvm",
-      "disk_interface": "virtio-scsi",
-      "disk_size": "{{ user `disk_size` }}",
-      "iso_url": "{{ user `iso_url` }}",
-      "iso_checksum": "{{ user `iso_checksum` }}",
-      "iso_checksum_type": "sha256",
-      "http_directory": ".",
-      "ssh_username": "root",
-      "ssh_password": "shell",
-      "shutdown_command": "shutdown -h now",
-      "ssh_wait_timeout": "60m",
-      "boot_wait": "2s",
       "boot_command": [
-        "<esc><wait>",
-        "/install.amd/vmlinuz ",
-        "initrd=/install.amd/initrd.gz ",
-        "hostname=airgap ",
+        "<wait><e><F2>",
+        "linux /install.amd/vmlinuz ",
+        "hostname={{user `user`}} ",
         "auto=true ",
         "priority=critical ",
         "interface=auto ",
         "url=http://{{ .HTTPIP }}:{{ .HTTPPort }}/packer/preseed.cfg ",
+        "--- ",
+        "quiet",
+        "<enter>",
+        "initrd /install.amd/initrd.gz<enter>",
+        "boot",
         "<enter>"
       ],
+      "boot_wait": "10s",
+      "disk_interface": "virtio-scsi",
+      "disk_size": "{{ user `disk_size` }}",
+      "format": "raw",
+      "headless": "{{ user `headless` }}",
+      "http_directory": ".",
+      "iso_checksum": "sha256:{{ user `iso_checksum` }}",
+      "iso_url": "{{ user `iso_url` }}",
+      "name": "qemu",
+      "output_directory": ".packer/build/",
       "qemuargs": [
-        [ "-m", "{{ user `memory` }}" ],
-        [ "-smp", "cpus={{ user `cpus`}}"]
+        [
+          "-m",
+          "{{ user `memory` }}"
+        ],
+        [
+          "-smp",
+          "cpus={{ user `cpus`}}"
+        ],
+        [
+          "-bios",
+          "/usr/share/qemu/OVMF.fd"
+        ],
+        [
+          "-enable-kvm"
+        ]
       ],
-      "output_directory": ".packer/build/"
+      "shutdown_command": "shutdown -h now",
+      "ssh_password": "shell",
+      "ssh_timeout": "60m",
+      "ssh_username": "root",
+      "type": "qemu"
     }
+  ],
+  "post-processors": [
+    [
+      {
+        "compression_level": 6,
+        "format": ".gz",
+        "keep_input_artifact": false,
+        "output": "build/airgap-{{user `version`}}.raw.gz",
+        "type": "compress"
+      },
+      {
+        "inline": [
+          "ln -s airgap-{{ user `version` }}.raw.gz build/airgap-latest.raw.gz"
+        ],
+        "type": "shell-local"
+      }
+    ]
   ],
   "provisioners": [
     {
-      "type": "shell",
       "inline": [
-        "apt install -y python",
+        "apt install -y python3",
         "mount -t tmpfs -o size=8G tmpfs /tmp/"
-      ]
+      ],
+      "type": "shell"
     },
     {
-      "type": "ansible",
-      "playbook_file": "ansible/main.yml",
-      "extra_arguments": "{{ user `ansible_args` }}"
-    },
-    {
-      "type": "file",
+      "destination": "/usr/local/bin/",
       "source": "scripts/",
-      "destination": "/usr/local/bin/"
+      "type": "file"
     },
     {
-      "type": "file",
+      "destination": "/etc/",
       "source": "packer/etc/",
-      "destination": "/etc/"
-    }
-
-  ],
-  "post-processors": [[
-    {
-      "compression_level": 6,
-      "format": ".gz",
-      "keep_input_artifact": false,
-      "output": "dist/airgap-{{user `version`}}.raw.gz",
-      "type": "compress"
+      "type": "file"
     },
     {
-      "type": "shell-local",
-      "inline": [
-        "ln -s airgrap-{{ user `version` }}.tar.gz dist/airgap-latest.raw.gz"
+      "playbook_file": "ansible/main.yml",
+      "type": "ansible",
+      "extra_arguments": [
+        "--extra-vars",
+        "user={{user `user`}}",
+        "--ssh-extra-args",
+        "-o PubkeyAcceptedKeyTypes=ssh-rsa -o HostKeyAlgorithms=ssh-rsa"
       ]
     }
-  ]]
+  ]
 }
+

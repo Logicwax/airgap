@@ -1,116 +1,118 @@
 ---
-- name: install packages
-  action: apt pkg={{item}} state=installed
-  with_items:
+- name: Install packages
+  apt:
+    update_cache: yes
+    state: latest
+    pkg:
     - libsecp256k1-0
     - libsecp256k1-dev
     - libboost-dev
     - libboost-all-dev
     - electrum
-    - python-crypto
-    - python-pycryptopp
-    - python-dev
-    - python-flufl.password
-    - python-mnemonic
+    - python3-cryptography
+    - python3-pycryptodome
+    - python3-dev
+    - python3-flufl.password
+    - python3-mnemonic
 
-- shell: gpg --recv-key 91F3B339B9A02A3D
-- file: path=/root/.gnupg/gpg.conf state=touch
-- lineinfile:
-    dest: /root/.gnupg/gpg.conf
-    state: present
-    regexp: '91F3B339B9A02A3D'
-    line: 'trusted-key 91F3B339B9A02A3D'
-
-- git:
-    repo: 'https://github.com/zeromq/libzmq.git'
-    dest: /tmp/libzmq
-    version: 2cb1240db64ce1ea299e00474c646a2453a8435b
-- shell: |
-    cd /tmp/libzmq
-    ./autogen.sh
-    ./configure --prefix=/usr
-- make: chdir=/tmp/libzmq target=install
-- file: state=absent path=/tmp/lubzmq
-
-- git:
-    repo: 'https://github.com/libbitcoin/libbitcoin.git'
-    dest: /tmp/libbitcoin
-    version: 55f0c59421b43bb8c756431da53a28daf95dd0fa
-- shell: |
-    cd /tmp/libbitcoin
-    ./autogen.sh
-    ./configure --prefix=/usr
-- make: chdir=/tmp/libbitcoin target=install
-- file: state=absent path=/tmp/libbitcoin
-
-- git:
-    repo: 'https://github.com/libbitcoin/libbitcoin-protocol.git'
-    dest: /tmp/libbitcoin-protocol
-    version: 40396466af885bc75f878e2518a227bc4288d7a1
-- shell: |
-    cd /tmp/libbitcoin-protocol
-    ./autogen.sh
-    ./configure --prefix=/usr
-- make: chdir=/tmp/libbitcoin-protocol target=install
-- file: state=absent path=/tmp/libbitcoin-protocol
-
-- git:
-    repo: 'https://github.com/libbitcoin/libbitcoin-network.git'
-    dest: /tmp/libbitcoin-network
-    version: 4349e522c525c30d7f7a87f1288b66f475ee8d8c
-- shell: |
-    cd /tmp/libbitcoin-network
-    ./autogen.sh
-    ./configure --prefix=/usr
-- make: chdir=/tmp/libbitcoin-network target=install
-- file: state=absent path=/tmp/libbitcoin-network
-
-- git:
-    repo: 'https://github.com/libbitcoin/libbitcoin-client.git'
-    dest: /tmp/libbitcoin-client
-    version: 780dfea2be845884dfd509464983f6ecbe593770
-- shell: |
-    cd /tmp/libbitcoin-client
-    ./autogen.sh
-    ./configure --prefix=/usr
-- make: chdir=/tmp/libbitcoin-client target=install
-- file: state=absent path=/tmp/libbitcoin-client
-
-- git:
-    repo: 'https://github.com/libbitcoin/libbitcoin-explorer.git'
-    dest: /tmp/libbitcoin-explorer
-    version: 8c886eb28eab38b977050cd3a466feb14ae0ee8f
-- shell: |
-    cd /tmp/libbitcoin-explorer
-    ./autogen.sh
-    ./configure --prefix=/usr
-- make: chdir=/tmp/libbitcoin-explorer target=install
-- file: state=absent path=/tmp/libbitcoin-explorer
-
-- git:
-    repo: 'https://github.com/trezor/python-mnemonic.git'
-    dest: /tmp/python-mnemonic
-    version: 063a33b517803c88d81e0ff0ccc9587b833d8280
-- shell: |
-    cd /tmp/python-mnemonic
-    git verify-commit dd9c541767a2a8ff60c7868c9f4b03277fabb8ba
-    python setup.py install
-- file: state=absent path=/tmp/python-mnemonic
-
-- git:
-    repo: 'https://github.com/richardkiss/pycoin.git'
-    dest: /tmp/pycoin
-    version: 98b192a198d56d6754fda911e9d89afb894d7b33
-- shell: |
-    cd /tmp/pycoin
-    python setup.py install
-- file: state=absent path=/tmp/pycoin
-
-- git:
-    repo: 'https://github.com/Legrandin/pycryptodome.git'
-    dest: /tmp/pycryptodome
-    version: 9389dad20c81928e51151ddb984d5721a7cb09d2
-- shell: |
-    cd /tmp/pycryptodome
-    python setup.py install
-- file: state=absent path=/tmp/pycryptodome
+#- shell: gpg --recv-key 91F3B339B9A02A3D
+#- file: path=/root/.gnupg/gpg.conf state=touch
+#- lineinfile:
+#    dest: /root/.gnupg/gpg.conf
+#    state: present
+#    regexp: '91F3B339B9A02A3D'
+#    line: 'trusted-key 91F3B339B9A02A3D'
+#
+#- git:
+#    repo: 'https://github.com/zeromq/libzmq.git'
+#    dest: /tmp/libzmq
+#    version: 2cb1240db64ce1ea299e00474c646a2453a8435b
+#- shell: |
+#    cd /tmp/libzmq
+#    ./autogen.sh
+#    ./configure --prefix=/usr
+#- make: chdir=/tmp/libzmq target=install
+#- file: state=absent path=/tmp/lubzmq
+#
+#- git:
+#    repo: 'https://github.com/libbitcoin/libbitcoin.git'
+#    dest: /tmp/libbitcoin
+#    version: 55f0c59421b43bb8c756431da53a28daf95dd0fa
+#- shell: |
+#    cd /tmp/libbitcoin
+#    ./autogen.sh
+#    ./configure --prefix=/usr
+#- make: chdir=/tmp/libbitcoin target=install
+#- file: state=absent path=/tmp/libbitcoin
+#
+#- git:
+#    repo: 'https://github.com/libbitcoin/libbitcoin-protocol.git'
+#    dest: /tmp/libbitcoin-protocol
+#    version: 40396466af885bc75f878e2518a227bc4288d7a1
+#- shell: |
+#    cd /tmp/libbitcoin-protocol
+#    ./autogen.sh
+#    ./configure --prefix=/usr
+#- make: chdir=/tmp/libbitcoin-protocol target=install
+#- file: state=absent path=/tmp/libbitcoin-protocol
+#
+#- git:
+#    repo: 'https://github.com/libbitcoin/libbitcoin-network.git'
+#    dest: /tmp/libbitcoin-network
+#    version: 4349e522c525c30d7f7a87f1288b66f475ee8d8c
+#- shell: |
+#    cd /tmp/libbitcoin-network
+#    ./autogen.sh
+#    ./configure --prefix=/usr
+#- make: chdir=/tmp/libbitcoin-network target=install
+#- file: state=absent path=/tmp/libbitcoin-network
+#
+#- git:
+#    repo: 'https://github.com/libbitcoin/libbitcoin-client.git'
+#    dest: /tmp/libbitcoin-client
+#    version: 780dfea2be845884dfd509464983f6ecbe593770
+#- shell: |
+#    cd /tmp/libbitcoin-client
+#    ./autogen.sh
+#    ./configure --prefix=/usr
+#- make: chdir=/tmp/libbitcoin-client target=install
+#- file: state=absent path=/tmp/libbitcoin-client
+#
+#- git:
+#    repo: 'https://github.com/libbitcoin/libbitcoin-explorer.git'
+#    dest: /tmp/libbitcoin-explorer
+#    version: 8c886eb28eab38b977050cd3a466feb14ae0ee8f
+#- shell: |
+#    cd /tmp/libbitcoin-explorer
+#    ./autogen.sh
+#    ./configure --prefix=/usr
+#- make: chdir=/tmp/libbitcoin-explorer target=install
+#- file: state=absent path=/tmp/libbitcoin-explorer
+#
+#- git:
+#    repo: 'https://github.com/trezor/python-mnemonic.git'
+#    dest: /tmp/python-mnemonic
+#    version: 063a33b517803c88d81e0ff0ccc9587b833d8280
+#- shell: |
+#    cd /tmp/python-mnemonic
+#    git verify-commit dd9c541767a2a8ff60c7868c9f4b03277fabb8ba
+#    python setup.py install
+#- file: state=absent path=/tmp/python-mnemonic
+#
+#- git:
+#    repo: 'https://github.com/richardkiss/pycoin.git'
+#    dest: /tmp/pycoin
+#    version: 2a8eb89f80fd3f7c3086740e3987878ac48f755d
+#- shell: |
+#    cd /tmp/pycoin
+#    python setup.py install
+#- file: state=absent path=/tmp/pycoin
+#
+#- git:
+#    repo: 'https://github.com/Legrandin/pycryptodome.git'
+#    dest: /tmp/pycryptodome
+#    version: 9389dad20c81928e51151ddb984d5721a7cb09d2
+#- shell: |
+#    cd /tmp/pycryptodome
+#    python setup.py install
+#- file: state=absent path=/tmp/pycryptodome

@@ -1,11 +1,19 @@
-KERNEL!="mmcblk[0-9]p[0-9]", GOTO="sd_cards_auto_mount_end"
+KERNEL!="mmcblk[0-9]p[0-9]|sd[a-z][0-9]|sd[a-z]|sd", GOTO="sd_cards_auto_mount_end"
 
-# Global mount options
-ACTION=="add", ENV{mount_options}="relatime"
-# Filesystem specific options
-ACTION=="add", IMPORT{program}="/sbin/blkid -o udev -p %N"
-ACTION=="add", ENV{ID_FS_TYPE}=="vfat|ntfs", ENV{mount_options}="$env{mount_options},utf8,flush,user,umask=0000"
+# Ever since early systemd-udevd merge, we are forced to use some
+# hack to be able to run long lived processes from udev (which is required for
+# some filesystems that will spawn some daemon, like ntfs-3g).
+#
+# udev will kill the running process and all childs after 4-5 seconds, so the
+# mounting has to be done as a separate "service"
 
-ACTION=="add", RUN+="/bin/mkdir -p /media/sd-%k", RUN+="/bin/mount -o $env{mount_options} /dev/%k /media/sd-%k"
-ACTION=="remove", RUN+="/bin/umount -l /media/sd-%k", RUN+="/bin/rmdir /media/sd-%k"
+# mount the device when added
+KERNEL=="mmcblk[0-9]p[0-9]|sd[a-z][0-9]", ACTION=="add", ENV{SYSTEMD_WANTS}="media-automount@%k.service"
+
+# handle sd-card dongles that only report change events
+KERNEL=="sd[a-z][0-9]|sd[a-z]|sd", ACTION=="change", ENV{SYSTEMD_WANTS}="media-automount@%k.service",RUN{program}="/usr/bin/systemctl restart media-automount@%k.service"
+
+# clean up after device removal
+KERNEL=="mmcblk[0-9]p[0-9]|sd[a-z][0-9]", ACTION=="remove", RUN{program}="/usr/bin/systemctl start media-automount@%k.service"
+
 LABEL="sd_cards_auto_mount_end"

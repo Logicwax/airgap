@@ -1,7 +1,9 @@
 ---
-- name: install packages
-  action: apt pkg={{item}} state=installed
-  with_items:
+- name: Install packages
+  apt:
+    update_cache: yes
+    state: latest
+    pkg:
     - qrencode
     - jq
     - expect
@@ -18,6 +20,14 @@
     - parted
     - hwinfo
     - lvm2
-    - glances
     - htop
+    - tig
     - tmux
+    - xz-utils
+- name: Install Yubico management utils
+  # This is needed because debian buster repo's don't include this anymore
+  block:
+  - apt:
+      deb: http://ftp.us.debian.org/debian/pool/main/y/yubico-piv-tool/libykpiv2_2.2.0-1_amd64.deb
+  - apt:
+      deb: http://ftp.us.debian.org/debian/pool/main/y/yubico-piv-tool/yubico-piv-tool_2.2.0-1_amd64.deb

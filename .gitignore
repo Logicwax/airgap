@@ -1,3 +1,4 @@
 .*
 dist
+build
 ansible/*.retry

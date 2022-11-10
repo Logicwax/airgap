@@ -1,14 +1,15 @@
 ---
-- name: install packages
-  action: apt pkg={{item}} state=installed
-  with_items:
+- name: Install APT packages
+  apt:
+    update_cache: yes
+    state: latest
+    pkg:
     - gnupg
     - gnupg2
     - dirmngr
     - pinentry-tty
     - scrypt
     - ssdeep
-    - hash-slinger
     - seccure
     - ssl-cert
     - openssl

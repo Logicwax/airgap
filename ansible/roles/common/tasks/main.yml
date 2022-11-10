@@ -1,79 +1,96 @@
 ---
-- apt_repository:
-    repo: deb http://ftp.debian.org/debian stretch-backports main
-    state: present
-
-- apt_repository:
-    repo: deb http://ftp.debian.org/debian/ sid main contrib non-free
-    state: present
-
 - name: Install APT packages
-  action: apt pkg={{item}} state=latest update_cache=yes
-  with_items:
-    - sudo
-    - git
-    - build-essential
+  apt:
+    pkg:
+    - apt-transport-https
     - autoconf
     - automake
-    - pkg-config
-    - python-setuptools
+    - bilibop-lockfs
+    - build-essential
+    - bsdmainutils
+    - ca-certificates
+    - curl
+    - dosfstools
+    - expect
+    - git
+    - gnupg2
+    - grub-efi-amd64
+    - grub-efi-amd64-bin
+    - grub-efi-ia32-bin
+    - grub-pc
+    - grub-pc-bin
+    - grub2-common
     - libconfig-dev
-    - fsprotect
-    - aufs-dkms
-    - aufs-tools
+    - libtool
+    - man-db
+    - opensc
+    - opensc-pkcs11
+    - pkg-config
+    - software-properties-common
+    - sudo
+    - yubico-piv-tool
+    - yubikey-manager
+    - zsh
+    - zsh-autosuggestions
+    - zsh-syntax-highlighting
 
-- name: Install latest linux kernel and headers
-  action: apt pkg={{item}} state=latest
-  with_items:
-    - linux-image-amd64
-    - linux-headers-amd64
+- apt_repository:
+    repo: deb http://ftp.debian.org/debian/ stable main contrib non-free
+    state: present
 
-- name: Create airgap user
+- name: Create user
   block:
   - user:
-      name: airgap
+      name: "{{ user }}"
       shell: /bin/bash
-      groups: sudo
+      groups: sudo,operator
       createhome: true
       append: yes
   - file:
-      path: /home/airgap/
+      path: "/home/{{ user }}/"
       state: directory
       recurse: yes
-      owner: airgap
-      group: airgap
-      mode: "0755"
+      owner: "{{ user }}"
+      group: "{{ user }}"
   - file:
-      path: /home/airgap/.local/bin
+      path: "/home/{{ user }}/.local/bin"
       state: directory
-      owner: airgap
-      group: airgap
+      owner: "{{ user }}"
+      group: "{{ user }}"
       mode: "0755"
-  - shell: passwd --delete airgap
-  - lineinfile:
+  - name: Delete user account passwd
+    shell: "passwd --delete {{ user }}"
+  - name: Enabling password-less sudo for operators group
+    lineinfile:
       dest: /etc/sudoers
       state: present
-      line: '%sudo ALL=(ALL) NOPASSWD: ALL'
+      line: '%operator ALL=(ALL) NOPASSWD: ALL'
   - file:
-      path: /home/airgap/.bash_profile
+      path: "/home/{{ user }}/.bash_profile"
       state: touch
-      owner: airgap
-      group: airgap
+      owner: "{{ user }}"
+      group: "{{ user }}"
       mode: "0755"
   - blockinfile:
-      dest: /home/airgap/.bash_profile
+      dest: "/home/{{ user }}/.bash_profile"
       state: present
       block: |
         clear
-        export PATH="/home/airgap/.local/bin:$PATH"
+        export PATH="/home/{{ user }}/.local/bin:/home/{{ user }}/tools/bls-pregen-tool:$PATH"
+        export GPG_TTY=$(tty)
+        alias bigfont="setfont /usr/share/consolefonts/Lat2-Terminus28x14.psf.gz"
+        alias ls="ls --color=auto"
+        alias grep="grep --color=auto"
+        alias ll="ls -alhF"
+        PS1='${debian_chroot:+($debian_chroot)}\[\033[32m\]\u\[\033[00m\]@\[\033[01;32m\]\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ ';;
   - file:
-      path: /home/airgap/.hushlogin
+      path: "/home/{{ user }}/.hushlogin"
       state: touch
-      owner: airgap
-      group: airgap
+      owner: "{{ user }}"
+      group: "{{ user }}"
       mode: "0755"
 
-- name: Automatic Login
+- name: Automatic Local Login
   block:
   - file:
       path: /etc/systemd/system/getty@tty1.service.d
@@ -103,6 +120,109 @@
         src: shared-mount.conf
         dest: /etc/systemd/system/systemd-udevd.service.d/shared-mount.conf
 
+- name: Install APT packages
+  apt:
+    update_cache: yes
+    state: latest
+    pkg:
+    - linux-image-amd64
+    - linux-headers-amd64
+
+- name: Kernel cmdline
+  block:
+    - blockinfile:
+        dest: /etc/default/grub
+        state: present
+        block: |
+          GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX rootovl quiet splash loglevel=0 console=ttyS0,115200 earlyprintk=ttyS0,115200 nofb"
+          GRUB_HIDDEN_TIMEOUT_QUIET=true
+          GRUB_HIDDEN_TIMEOUT=0
+          GRUB_TIMEOUT=0
+    - command: /usr/sbin/update-initramfs -u
+
+- name: Install EFI GRUB
+  block:
+  - shell: |
+      parted /dev/sda -- set 1 legacy_boot on
+      grub-install --removable --no-floppy --no-nvram --uefi-secure-boot --target=i386-efi
+      grub-install --removable --no-floppy --no-nvram --uefi-secure-boot --target=x86_64-efi
+      grub-install --removable --no-floppy --no-nvram --uefi-secure-boot --target=i386-pc /dev/sda
+      update-initramfs -ckall
+      update-grub
+  become: yes
+
+# systemd isn't available in debian's initramfs-tools, so we use dracut
+- name: Read-only overlay
+  block:
+  - lineinfile:
+      dest: /etc/dracut.conf.d/overlay.conf
+      create: yes
+      insertafter: EOF
+      line: 'filesystems+="overlay "'
+  - lineinfile:
+      dest: /etc/dracut.conf.d/udev.conf
+      create: yes
+      insertafter: EOF
+      line: 'filesystems+="ext4 "'
+  - apt:
+      install_recommends: no
+      pkg:
+      - dracut
+  - lineinfile:
+      dest: /etc/dracut.conf.d/10-debian.conf
+      create: yes
+      regexp: "hostonly=yes"
+      line: "hostonly=no"
+  - shell: dracut --regenerate-all --force
+  become: yes
+
+- name: install latest nodejs
+  block:
+    - apt_key: url=https://deb.nodesource.com/gpgkey/nodesource.gpg.key
+    - apt_repository:
+        repo: 'deb http://deb.nodesource.com/node_16.x {{ ansible_distribution_release }} main'
+        update_cache: yes
+    - apt: name=nodejs
+    - shell: |
+        npm i -g yarn
+        yarn config set --home enableTelemetry 0
+
+- name: GPG config
+  block:
+  - lineinfile:
+      dest: /home/{{ user }}/.gnupg/gpg-agent.conf
+      state: present
+      mode: "0644"
+      owner: "{{ user }}"
+      group: "{{ user }}"
+      create: yes
+      line: 'pinentry-program /usr/bin/pinentry-tty'
+  - lineinfile:
+      dest: /home/{{ user }}/.gnupg/gpg-agent.conf
+      state: present
+      mode: "0644"
+      owner: "{{ user }}"
+      group: "{{ user }}"
+      create: yes
+      line: 'allow-loopback-pinentry'
+
+- name: Auto Mount SD Cards
+  template:
+    src: udev-sdcard-automount.rules
+    dest: /etc/udev/rules.d/70-udev-sdcard-automount.rules
+
+- name: Media Automount
+  template:
+    src: media-automount
+    dest: /usr/local/bin/media-automount
+    mode: "0755"
+
+- name: Media Automount Service
+  template:
+    src: media-automount@.service
+    dest: /etc/systemd/system/media-automount@.service
+    mode: "0644"
+
 - name: Enable DHCP if network device present
   block:
     - blockinfile:
@@ -112,10 +232,8 @@
         block: |
           [Match]
           Name=en*
-
           [Network]
           DHCP=ipv4
-
 - name: Enable passwordless ssh for dev or airgap-to-airgap uses
   block:
     - lineinfile:
@@ -134,17 +252,27 @@
           auth requisite pam_deny.so
           auth required pam_permit.so
 
-- name: Immutable rootfs with memory overlay
+- name: Fancy Z-shell
   block:
-    - blockinfile:
-        dest: /etc/default/grub
-        state: present
-        block: |
-          GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX fsprotect=1G quiet splash loglevel=0 console=ttyS0,115200 earlyprintk=ttyS0,115200 nofb"
-          #GRUB_HIDDEN_TIMEOUT_QUIET=true
-          #GRUB_HIDDEN_TIMEOUT=0
-          #GRUB_TIMEOUT=0
-    - name: update-initramfs
-      command: /usr/sbin/update-initramfs -u
-    - name: update-grub
-      command: /usr/sbin/update-grub
+  - blockinfile:
+      dest: "/home/{{ user }}/.zshrc"
+      create: yes
+      owner: "{{ user }}"
+      group: "{{ user }}"
+      mode: "0644"
+      state: present
+      block: |
+        source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+        source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+        clear
+        export PATH="/home/{{ user }}/.local/bin:$PATH"
+        alias bigfont="setfont /usr/share/consolefonts/Lat2-Terminus28x14.psf.gz"
+        alias ls="ls --color=auto"
+        alias grep="grep --color=auto"
+        alias ll="ls -alFh"
+        PS1='%F{magenta}%n%F{cyan}@%f%B%F{green}%m%f%b%F{white}:%f%F{blue}%B%~%b%f%F{white}%f$ '
+        HISTFILE=~/.zsh_history
+        HISTSIZE=10000
+        SAVEHIST=10000
+        setopt appendhistory
+  - shell: chsh -s $(which zsh) {{ user }}

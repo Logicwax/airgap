@@ -1,6 +1,6 @@
 # Airgap #
 
-<https://github.com/lrvick/airgap>
+<https://github.com/Logicwax/airgap>
 
 ## About ##
 
@@ -26,6 +26,8 @@ For a full list of tools included see: [tools](docs/tools.md)
 
 * ansible
 * packer
+* qemu
+* ovmf
 
 ### Hardware ###
 
@@ -41,14 +43,14 @@ from a random retail store in order to avoid supply chain attacks.
 ## Build ##
 
 ```
-make all
+make
 ```
 
 ## Install ##
 
 Create bootable USB drive:
 ```
-gunzip -c $(ls -1 dist/airgap-20*.raw.gz) | sudo dd bs=4M of=/dev/sda status=progress oflag=dsync
+DISK=/dev/sdX make flash-disk
 ```
 
 Note: The above assumes `/dev/sda` is a flash media device of 8GB or larger.
@@ -62,7 +64,7 @@ Note: The above assumes `/dev/sda` is a flash media device of 8GB or larger.
 ### Build Debugging
 
 ```
-PACKER_LOG=1 ANSIBLE_ARGS="-vvvv" make all
+PACKER_LOG=1 ANSIBLE_ARGS="-vvvv" make
 ```
 
 ### Boot image in qemu
@@ -92,6 +94,6 @@ Note: Due to fsprotect being enabled, changes will not persist through reboots.
 
   Questions/Comments?
 
-  - IRC: [lrvick@irc.freenode.net/6697]()
-  - Matrix: [@lrvick:matrix.org]()
-  - Email: [lance@lrvick.net](mailto://lance@lrvick.net)
+  - IRC: [Logicwax@irc.freenode.net/6697]()
+  - Matrix: [@Logicwax:matrix.org]()
+  - Email: [*@Logicwax.com](mailto://*@Logicwax.com)

@@ -1,0 +1,15 @@
+[Unit]
+Description=Infinoise Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=root
+Type=simple
+ExecStart=/usr/local/bin/infnoise --dev-random
+
+Restart=always
+RestartSec=60s
+
+[Install]
+WantedBy=multi-user.target

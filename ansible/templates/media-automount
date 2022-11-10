@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# Directory to use for mounting the devices
+mdir=/media/
+# Default options to use for mounting
+mopts='errors=remount-ro,relatime,utf8,user'
+
+[[ $EUID != 0 ]] && {
+    echo "This tool requires root permissions"
+    exit 1
+}
+shopt -s nullglob
+
+log() {
+    logger -st "media-automount" "$*"
+}
+
+if ! [ "$1" ]
+then
+    log "Missing arguments! A device name must be provided"
+    exit 1
+else
+    dev=/dev/${1##*/}
+fi
+
+# Check if the device currently exists
+if [ -b $dev ]
+then
+    # Load additional info for the block device
+    eval $(blkid -po export $dev)
+    if grep $UUID -q /etc/fstab
+    then
+        log "$dev already in /etc/fstab, automount won't manage it"
+        exit 1
+    fi
+
+    # Unmounting any stale mounts for data stability
+    log "Refreshing mount, unmounting and cleaning"
+    if umount "$dev"*
+    then
+        log "$dev unmounted"
+    fi
+
+    # Mount disk
+    if [ $LABEL ]
+    then
+        dir="${mdir}/${LABEL:-${dev##*/}}"
+    else
+        dir="${mdir}/${LABEL:-${dev##*/}}.$TYPE"
+    fi
+    mopts="$mopts,user,utf8,umask=0000,flush,uid=vault,gid=vault"
+    log "mounting device $dev in $dir"
+    mkdir -p "$dir"
+    if mount -t "${mtype:-auto}" -o "$mopts" "$dev" "$dir"
+    then
+        log "Device successfully mounted: $dir"
+        exit 0
+    else
+        log "Mount error: $?"
+        rmdir "$dir"
+        exit 1
+    fi
+else
+    # Cleanup / Handle ejected disks
+    log "Device doesn't exist anymore or is not a block device, cleaning mountpoint: $dev"
+    for dir in "$mdir"/*
+    do
+        if umount $dir
+        then
+            log "$dir unmounted"
+        else
+            log "Error unmounting $dir"
+        fi
+        rm -rf $dir
+    done
+fi

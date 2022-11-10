@@ -1,7 +1,9 @@
 ---
-- name: install packages
-  action: apt pkg={{item}} state=installed
-  with_items:
+- name: Install packages
+  apt:
+    update_cache: yes
+    state: latest
+    pkg:
     - rsync
     - paperkey
     - qrencode

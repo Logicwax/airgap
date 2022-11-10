@@ -1,0 +1,7 @@
+[Unit]
+Description=Mount USB Drive on %i
+
+[Service]
+Type=forking
+GuessMainPID=no
+ExecStart=/usr/local/bin/media-automount %I

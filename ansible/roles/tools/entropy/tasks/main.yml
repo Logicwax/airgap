@@ -1,27 +1,79 @@
 ---
-- name: install packages
-  action: apt pkg={{item}} state=installed
-  with_items:
+- name: Install APT packages
+  apt:
+    update_cache: yes
+    state: latest
+    pkg:
     - haveged
     - libftdi-dev
     - libusb-dev
     - rng-tools5
+    - apparmor-utils
+    - haveged
+
+- name: Apparmor / Systemd Haveged Permissions Fix
+  block:
+  - lineinfile:
+      dest: /etc/apparmor.d/local/usr.sbin.haveged
+      state: present
+      insertafter: EOF
+      line: '  /fsprotect/system/lib/x86_64-linux-gnu/libc-*.so r,'
+  - lineinfile:
+      dest: /etc/apparmor.d/local/usr.sbin.haveged
+      state: present
+      insertafter: EOF
+      line: '  /fsprotect/system/usr/lib/x86_64-linux-gnu/libhavege.so.* r,'
+  - lineinfile:
+      dest: /etc/apparmor.d/local/usr.sbin.haveged
+      state: present
+      insertafter: EOF
+      line: '  /fsprotect/system/usr/lib/x86_64-linux-gnu/libc*.so r,'
+  - lineinfile:
+      path: /lib/systemd/system/haveged.service
+      regexp: 'PrivateTmp=yes'
+      line: ''
+  - lineinfile:
+      path: /lib/systemd/system/haveged.service
+      regexp: 'PrivateDevices=yes'
+      line: ''
+  - lineinfile:
+      path: /lib/systemd/system/haveged.service
+      regexp: 'ProtectSystem=full'
+      line: ''
+  - lineinfile:
+      path: /lib/systemd/system/haveged.service
+      regexp: 'ProtectHome=yes'
+      line: ''
 
 - systemd: name=haveged enabled=yes masked=no
 
-- git:
-    repo: 'https://github.com/waywardgeek/infnoise.git'
-    dest: /tmp/infnoise
-    version: 3e406cfbb23e2fa74102d197cd44daee1e68e67a
-- make:
-    chdir: /tmp/infnoise/software
-- copy:
-    src: /tmp/infnoise/software/infnoise
-    dest: /usr/local/bin/infnoise
-    remote_src: yes
-    owner: root
-    group: root
-    mode: a+x
-- file:
-    state: absent
-    path: /tmp/infnoise
+- name: Infinite Noise install
+  block:
+  - git:
+      repo: 'https://github.com/waywardgeek/infnoise.git'
+      dest: /tmp/infnoise
+      version: 40b57b27faf8007f54bbaaa60c353003a8e11e17
+  - make:
+      chdir: /tmp/infnoise/software
+      file: Makefile.linux
+  - copy:
+      src: /tmp/infnoise/software/infnoise
+      dest: /usr/local/bin/infnoise
+      remote_src: yes
+      owner: root
+      group: root
+      mode: a+x
+  - file:
+      state: absent
+      path: /tmp/infnoise
+  - template:
+      src: infinoise.service
+      dest: /etc/systemd/system/infinoise.service
+      mode: "0644"
+  - systemd: name=infinoise enabled=yes masked=no
+  - template:
+      src: 75-infnoise.rules
+      dest: /lib/udev/rules.d/75-infnoise.rules
+      mode: "0644"
+
+

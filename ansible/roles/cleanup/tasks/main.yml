@@ -1,7 +1,33 @@
 ---
-
-- name: Trim Filesystem
-  shell: fstrim -av
+- name: Remove build dependencies
+  apt:
+    state: absent
+    pkg:
+    - git
+    - build-essential
+    - autoconf
+    - automake
+    - pkg-config
+    - python-setuptools
+    - gcc
+    - gcc-7
+    - libtool
+    - g++
+    - g++-7
+    - cpp
+    - cpp-7
+    - libgl1-mesa-dri
+    - libllvm5.0
+    - gnome-icon-theme
+    - adwaita-icon-theme
+    - libgtk-3-common
+    - libgtk2.0-common
+    - python-gt4
+    - libqtgui4
+    - libc6-dbg
+    - python-matplotlib-data
+    - "*-dev"
+    - "x11-*"
 
 - name: Cleanup Cruft files
   action: file state=absent path={{item}}
@@ -14,4 +40,5 @@
     - "/usr/share/doc/"
     - "/usr/share/icons/"
 
-
+- name: Trim Filesystem
+  shell: fstrim -av
