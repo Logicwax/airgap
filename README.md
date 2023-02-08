@@ -71,11 +71,7 @@ PACKER_LOG=1 ANSIBLE_ARGS="-vvvv" make
 
 ```
 gunzip dist/airgap-latest.raw.gz
-qemu-system-x86_64 \
-  -m 512M \
-  -machine type=pc,accel=kvm \
-  -net nic -net user,hostfwd=tcp::2222-:22
-  -drive format=raw,file=$(ls -1 dist/airgap-*.raw)
+make test-boot
 ```
 
 ### Run Ansible against running VM

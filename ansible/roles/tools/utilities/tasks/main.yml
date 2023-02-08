@@ -4,26 +4,34 @@
     update_cache: yes
     state: latest
     pkg:
-    - qrencode
-    - jq
-    - expect
-    - rsync
-    - gpm
-    - ncdu
     - bzip2
-    - p7zip
-    - strace
-    - gdb
-    - nano
-    - vim-nox
     - emacs-nox
-    - parted
-    - hwinfo
-    - lvm2
+    - expect
+    - gdb
+    - consolation
     - htop
+    - hwinfo
+    - jq
+    - lvm2
+    - nano
+    - ncdu
+    - p7zip
+    - parted
+    - qrencode
+    - rsync
+    - strace
     - tig
     - tmux
+    - vim-nox
     - xz-utils
+
+- name: Support right-button clipboard pasting
+  lineinfile:
+    dest: /etc/default/consolation
+    create: yes
+    regexp: 'DAEMON_OPTS=""'
+    line: 'DAEMON_OPTS="--map BTN_RIGHT=paste"'
+
 - name: Install Yubico management utils
   # This is needed because debian buster repo's don't include this anymore
   block:

@@ -1,4 +1,13 @@
-.PHONY: build clean distclean flash-disk test-boot test-boot-bios
+ISO_CHECKSUM := e482910626b30f9a7de9b0cc142c3d4a079fbfa96110083be1d0b473671ce08d
+ISO_URL := https://cdimage.debian.org/mirror/cdimage/release/11.6.0/amd64/iso-cd/debian-11.6.0-amd64-netinst.iso
+
+.PHONY: \
+	build \
+	clean \
+	distclean \
+	flash-disk \
+	test-boot \
+	test-boot-bios
 
 EXECUTABLES = packer ansible qemu-system-x86_64
 K := $(foreach exec,$(EXECUTABLES),\
@@ -25,8 +34,11 @@ build: build/airgap-latest.raw.gz
 
 build/airgap-latest.raw.gz:
 
+	$(eval ISO_URL_WORKING = $(shell curl --fail --silent --output /dev/null $(ISO_URL) && echo $(ISO_URL) || echo $(ISO_URL) | sed s/release/archive/g))
 	packer build \
 	-var "user=airgap" \
+	-var "iso_url=$(ISO_URL_WORKING)" \
+	-var "iso_checksum=$(ISO_CHECKSUM)" \
 	packer/build.json
 
 build/airgap-latest.raw: build/airgap-latest.raw.gz

@@ -38,6 +38,15 @@
     repo: deb http://ftp.debian.org/debian/ stable main contrib non-free
     state: present
 
+# Latest firmware blobs for modern hardware support / laptops
+- name: Install backports APT packages
+  apt:
+    update_cache: yes
+    pkg:
+    - firmware-linux
+    - firmware-linux-nonfree
+    - firmware-misc-nonfree
+
 - name: Create user
   block:
   - user:
@@ -76,19 +85,41 @@
       state: present
       block: |
         clear
-        export PATH="/home/{{ user }}/.local/bin:/home/{{ user }}/tools/bls-pregen-tool:$PATH"
+        export PATH="/home/{{ user }}/.local/bin:$PATH"
         export GPG_TTY=$(tty)
         alias bigfont="setfont /usr/share/consolefonts/Lat2-Terminus28x14.psf.gz"
         alias ls="ls --color=auto"
         alias grep="grep --color=auto"
         alias ll="ls -alhF"
         PS1='${debian_chroot:+($debian_chroot)}\[\033[32m\]\u\[\033[00m\]@\[\033[01;32m\]\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ ';;
-  - file:
-      path: "/home/{{ user }}/.hushlogin"
-      state: touch
+
+- name: Fancy Z-shell
+  block:
+  - blockinfile:
+      dest: "/home/{{ user }}/.zshrc"
+      create: yes
       owner: "{{ user }}"
       group: "{{ user }}"
-      mode: "0755"
+      mode: "0644"
+      state: present
+      block: |
+        source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+        source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+        export PATH="/home/{{ user }}/.local/bin:/usr/sbin:$PATH"
+        export GPG_TTY=$(tty)
+        alias bigfont="setfont /usr/share/consolefonts/Lat2-Terminus28x14.psf.gz"
+        alias ls="ls --color=auto"
+        alias grep="grep --color=auto"
+        alias ll="ls -alFh"
+        PS1='%F{magenta}%n%F{cyan}@%f%B%F{green}%m%f%b%F{white}:%f%F{blue}%B%~%b%f%F{white}%f$ '
+        if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+            export TERM="xterm-256color"
+        fi
+        HISTFILE=~/.zsh_history
+        HISTSIZE=10000
+        SAVEHIST=10000
+        setopt appendhistory
+  - shell: chsh -s $(which zsh) {{ user }}
 
 - name: Automatic Local Login
   block:
@@ -101,7 +132,9 @@
   - template:
       src: autologin.conf
       dest: /etc/systemd/system/getty@tty1.service.d/autologin.conf
-      mode: "0755"
+      owner: root
+      group: root
+      mode: "0644"
   - systemd: name=getty@tty1 enabled=yes masked=no
 
 - name: Auto Mount SD Cards
@@ -158,12 +191,12 @@
       dest: /etc/dracut.conf.d/overlay.conf
       create: yes
       insertafter: EOF
-      line: 'filesystems+="overlay "'
+      line: 'filesystems+=" overlay "'
   - lineinfile:
       dest: /etc/dracut.conf.d/udev.conf
       create: yes
       insertafter: EOF
-      line: 'filesystems+="ext4 "'
+      line: 'filesystems+=" ext4 "'
   - apt:
       install_recommends: no
       pkg:
@@ -189,10 +222,17 @@
 
 - name: GPG config
   block:
+  - file:
+      path: "/home/{{ user }}/.gnupg"
+      state: directory
+      mode: "0700"
+      recurse: yes
+      owner: "{{ user }}"
+      group: "{{ user }}"
   - lineinfile:
       dest: /home/{{ user }}/.gnupg/gpg-agent.conf
       state: present
-      mode: "0644"
+      mode: "0600"
       owner: "{{ user }}"
       group: "{{ user }}"
       create: yes
@@ -200,7 +240,7 @@
   - lineinfile:
       dest: /home/{{ user }}/.gnupg/gpg-agent.conf
       state: present
-      mode: "0644"
+      mode: "0600"
       owner: "{{ user }}"
       group: "{{ user }}"
       create: yes
@@ -234,6 +274,7 @@
           Name=en*
           [Network]
           DHCP=ipv4
+
 - name: Enable passwordless ssh for dev or airgap-to-airgap uses
   block:
     - lineinfile:
@@ -251,28 +292,3 @@
           auth [success=1 default=ignore] pam_unix.so nullok
           auth requisite pam_deny.so
           auth required pam_permit.so
-
-- name: Fancy Z-shell
-  block:
-  - blockinfile:
-      dest: "/home/{{ user }}/.zshrc"
-      create: yes
-      owner: "{{ user }}"
-      group: "{{ user }}"
-      mode: "0644"
-      state: present
-      block: |
-        source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-        source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-        clear
-        export PATH="/home/{{ user }}/.local/bin:$PATH"
-        alias bigfont="setfont /usr/share/consolefonts/Lat2-Terminus28x14.psf.gz"
-        alias ls="ls --color=auto"
-        alias grep="grep --color=auto"
-        alias ll="ls -alFh"
-        PS1='%F{magenta}%n%F{cyan}@%f%B%F{green}%m%f%b%F{white}:%f%F{blue}%B%~%b%f%F{white}%f$ '
-        HISTFILE=~/.zsh_history
-        HISTSIZE=10000
-        SAVEHIST=10000
-        setopt appendhistory
-  - shell: chsh -s $(which zsh) {{ user }}

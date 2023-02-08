@@ -1,15 +1,14 @@
 [Unit]
 Description=Infinoise Service
-Wants=network-online.target
-After=network-online.target
+BindsTo=dev-infnoise.device
+After=dev-infnoise.device
 
 [Service]
+Type=forking
 User=root
-Type=simple
-ExecStart=/usr/local/bin/infnoise --dev-random
-
+Group=root
+ExecStart=/usr/local/bin/infnoise --dev-random --daemon --pidfile /var/run/infnoise.pid
 Restart=always
-RestartSec=60s
 
 [Install]
 WantedBy=multi-user.target

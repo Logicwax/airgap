@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Directory to use for mounting the devices
-mdir=/media/
+mdir=/media
 # Default options to use for mounting
 mopts='errors=remount-ro,relatime,utf8,user'
 
@@ -13,6 +13,14 @@ shopt -s nullglob
 
 log() {
     logger -st "media-automount" "$*"
+}
+
+cleanup() {
+    log "Cleaning up already unmounted drives"
+    for dir in "$mdir"/*
+    do
+        mount -l | grep "$dir" || rm -rf "$dir"
+    done
 }
 
 if ! [ "$1" ]
@@ -40,6 +48,7 @@ then
     then
         log "$dev unmounted"
     fi
+    cleanup
 
     # Mount disk
     if [ $LABEL ]
@@ -48,7 +57,7 @@ then
     else
         dir="${mdir}/${LABEL:-${dev##*/}}.$TYPE"
     fi
-    mopts="$mopts,user,utf8,umask=0000,flush,uid=vault,gid=vault"
+    mopts="$mopts,user,utf8,umask=0000,flush,uid={{ user }},gid={{ user }}"
     log "mounting device $dev in $dir"
     mkdir -p "$dir"
     if mount -t "${mtype:-auto}" -o "$mopts" "$dev" "$dir"
@@ -62,15 +71,14 @@ then
     fi
 else
     # Cleanup / Handle ejected disks
-    log "Device doesn't exist anymore or is not a block device, cleaning mountpoint: $dev"
-    for dir in "$mdir"/*
-    do
-        if umount $dir
-        then
-            log "$dir unmounted"
-        else
-            log "Error unmounting $dir"
-        fi
-        rm -rf $dir
-    done
+    dir=$(mount -l | grep "$dev" | awk '{ print $3 }')
+    log "Device doesn't exist anymore or is not a block device, cleaning mountpoint: $dev ($dir)"
+    if umount $dev
+    then
+        log "$dev ($dir) unmounted"
+    else
+        log "Error unmounting $dev ($dir)"
+    fi
+    rm -rf "$dir"
+    cleanup
 fi

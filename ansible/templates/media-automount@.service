@@ -1,5 +1,5 @@
 [Unit]
-Description=Mount USB Drive on %i
+Description=External storage media mounting service on %i
 
 [Service]
 Type=forking

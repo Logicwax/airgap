@@ -39,6 +39,7 @@
     - "/var/log/"
     - "/usr/share/doc/"
     - "/usr/share/icons/"
+    - "/home/{{ user }}/.ansible"
 
 - name: Trim Filesystem
   shell: fstrim -av

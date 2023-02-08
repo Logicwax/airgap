@@ -52,7 +52,7 @@
   - git:
       repo: 'https://github.com/waywardgeek/infnoise.git'
       dest: /tmp/infnoise
-      version: 40b57b27faf8007f54bbaaa60c353003a8e11e17
+      version: 66075cc79988bc891d37058724839487db0d3216
   - make:
       chdir: /tmp/infnoise/software
       file: Makefile.linux
@@ -75,5 +75,3 @@
       src: 75-infnoise.rules
       dest: /lib/udev/rules.d/75-infnoise.rules
       mode: "0644"
-
-

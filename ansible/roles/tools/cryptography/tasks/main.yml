@@ -24,3 +24,14 @@
     - pgpdump
     - keyutils
     - pius
+
+- name: Airgap MOTD timedrift warning
+  block:
+  - template:
+      src: timecheck-motd.sh
+      dest: /etc/update-motd.d/100-timecheck
+      mode: "0755"
+  - file:
+      path: /etc/motd
+      state: absent
+
