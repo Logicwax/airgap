@@ -91,6 +91,7 @@
         alias ls="ls --color=auto"
         alias grep="grep --color=auto"
         alias ll="ls -alhF"
+        alias help="/etc/update-motd.d/100-timecheck"
         PS1='${debian_chroot:+($debian_chroot)}\[\033[32m\]\u\[\033[00m\]@\[\033[01;32m\]\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ ';;
 
 - name: Fancy Z-shell
@@ -111,6 +112,7 @@
         alias ls="ls --color=auto"
         alias grep="grep --color=auto"
         alias ll="ls -alFh"
+        alias help="/etc/update-motd.d/100-timecheck"
         PS1='%F{magenta}%n%F{cyan}@%f%B%F{green}%m%f%b%F{white}:%f%F{blue}%B%~%b%f%F{white}%f$ '
         if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
             export TERM="xterm-256color"
