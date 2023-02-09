@@ -3,7 +3,7 @@
   gather_facts: yes
   roles:
     - common
-    - kernel
+    #- kernel
     - tools/entropy
     - tools/hsm
     - tools/cryptocurrency

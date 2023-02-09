@@ -163,15 +163,15 @@
 
 - name: Kernel cmdline
   block:
-    - blockinfile:
-        dest: /etc/default/grub
-        state: present
-        block: |
-          GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX rootovl quiet splash loglevel=0 console=ttyS0,115200 earlyprintk=ttyS0,115200 nofb"
-          GRUB_HIDDEN_TIMEOUT_QUIET=true
-          GRUB_HIDDEN_TIMEOUT=0
-          GRUB_TIMEOUT=0
-    - command: /usr/sbin/update-initramfs -u
+  - blockinfile:
+      dest: /etc/default/grub
+      state: present
+      block: |
+        GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX rootovl quiet splash loglevel=0 console=ttyS0,115200 earlyprintk=ttyS0,115200 nofb"
+        GRUB_HIDDEN_TIMEOUT_QUIET=true
+        GRUB_HIDDEN_TIMEOUT=0
+        GRUB_TIMEOUT=0
+  - command: /usr/sbin/update-initramfs -u
 
 - name: Install EFI GRUB
   block:
@@ -201,6 +201,7 @@
       install_recommends: no
       pkg:
       - dracut
+      - initramfs-tools-core
   - lineinfile:
       dest: /etc/dracut.conf.d/10-debian.conf
       create: yes
@@ -245,6 +246,11 @@
       group: "{{ user }}"
       create: yes
       line: 'allow-loopback-pinentry'
+
+- name: Init GPG keyring and trustdb
+  shell: gpg --list-keys
+  become: yes
+  become_user: "{{ user }}"
 
 - name: Auto Mount SD Cards
   template:
