@@ -1,81 +1,55 @@
 ---
-- name: Install packages
-  apt:
-    update_cache: yes
-    state: latest
-    pkg:
-    - libhidapi-libusb0
-    - libusb-1.0-0
-    - libusb-1.0-0-dev
-    - libudev-dev
-    - libhidapi-dev
-    - libftdi-dev
-    - libnfc-bin
-    - libnfc-examples
-    - libnfc-dev
-    - libnfc5
-    - libfreefare-bin
-    - libfreefare-dev
-    - neard
-    - neard-tools
-    - rfdump
-    - libccid
-    - libchipcard-tools
-    - libchipcard-data
-    - libpcsclite1
-    - pcscd
-    - python-pyscard
+# DISABLED BY DEFAULT (see ansible/main.yml) — this role does a live `git
+# clone` from GitHub + `python3 setup.py install` at image-build time for
+# nfcpy/ndeflib/ndeftool (no Debian package exists for any of them). That
+# breaks the reproducibility guarantee this whole build system exists to
+# provide: an unpinned-by-hash network fetch at build time means `make
+# build-check` can legitimately produce two different images even at the
+# same commit (setuptools egg-info/timestamps, upstream force-pushes, etc).
+# Building a whole host-cache + file:// + SHA-assert fetch system just to
+# pin this is overkill for a corner nobody has used in years.
+#
+# libnfc-bin/libnfc-examples/mfoc/mfcuk ARE real, hash-locked Debian
+# packages in os-builder/airgap-rootfs-packages.list and always ship —
+# only the three python-only tools below are gated off. (neard was
+# dropped entirely: no installation candidate in trixie.)
+#
+# Re-enable by uncommenting `tools/rfid` in ansible/main.yml if you accept
+# that tradeoff, or better: replace this block with pip installs from
+# hash-pinned sdists/wheels with the same discipline as the vendor
+# packages: committed key, exact version + sha256 hash lock.
 
 - systemd: name=pcscd enabled=yes masked=no
 
-- git:
-    repo: 'https://github.com/nfc-tools/mfcuk.git'
-    dest: /tmp/mfcuk
-    version: 5acc9f40a04be407443ebfe74d66bc53f8ab337f
-- shell: |
-    cd /tmp/mfcuk
-    autoreconf -vis
-    ./configure --prefix=/usr
-- make: chdir=/tmp/mfcuk target=install
-- file: state=absent path=/tmp/mfcuk
+- name: nfcpy
+  block:
+  - git:
+      repo: 'https://github.com/nfcpy/nfcpy.git'
+      dest: /tmp/nfcpy
+      version: c1d0f5f283f65b5671e9482a011e1118495129c1
+  - shell: |
+      cd /tmp/nfcpy
+      python3 setup.py install
+  - file: state=absent path=/tmp/nfcpy
 
-- git:
-    repo: 'https://github.com/nfc-tools/mfoc.git'
-    dest: /tmp/mfoc
-    version: 9d9f01fba4ee145bc873a85898b74041ca6d8831
-- shell: |
-    cd /tmp/mfoc
-    autoreconf -vis
-    ./configure --prefix=/usr
-- make: chdir=/tmp/mfoc target=install
-- file: state=absent path=/tmp/mfoc
+- name: ndeflib
+  block:
+  - git:
+      repo: 'https://github.com/nfcpy/ndeflib.git'
+      dest: /tmp/ndeflib
+      version: 606a6d83d972ba7c26012647ea3d17db1f503811
+  - shell: |
+      cd /tmp/ndeflib
+      python3 setup.py install
+  - file: state=absent path=/tmp/ndeflib
 
-- git:
-    repo: 'https://github.com/nfcpy/nfcpy.git'
-    dest: /tmp/nfcpy
-    version: c1d0f5f283f65b5671e9482a011e1118495129c1
-- shell: |
-    cd /tmp/nfcpy
-    python setup.py install
-    cp examples/cli.py /usr/local/lib/python2.7/dist-packages/
-    cp examples/tagtool.py /usr/local/bin/tagtool
-    chmod +x /usr/local/bin/tagtool
-- file: state=absent path=/tmp/nfcpy
-
-- git:
-    repo: 'https://github.com/nfcpy/ndeflib.git'
-    dest: /tmp/ndeflib
-    version: 606a6d83d972ba7c26012647ea3d17db1f503811
-- shell: |
-    cd /tmp/ndeflib
-    python setup.py install
-- file: state=absent path=/tmp/ndeflib
-
-- git:
-    repo: 'https://github.com/nfcpy/ndeftool.git'
-    dest: /tmp/ndeftool
-    version: 20851ced32458f0d9e416dc35c63d77729a773c4
-- shell: |
-    cd /tmp/ndeftool
-    python setup.py install
-- file: state=absent path=/tmp/ndeftool
+- name: ndeftool
+  block:
+  - git:
+      repo: 'https://github.com/nfcpy/ndeftool.git'
+      dest: /tmp/ndeftool
+      version: 20851ced32458f0d9e416dc35c63d77729a773c4
+  - shell: |
+      cd /tmp/ndeftool
+      python3 setup.py install
+  - file: state=absent path=/tmp/ndeftool

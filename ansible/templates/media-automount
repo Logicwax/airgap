@@ -2,8 +2,7 @@
 
 # Directory to use for mounting the devices
 mdir=/media
-# Default options to use for mounting
-mopts='errors=remount-ro,relatime,utf8,user'
+mopts='noexec,nosuid,nodev,relatime,user'
 
 [[ $EUID != 0 ]] && {
     echo "This tool requires root permissions"
@@ -35,7 +34,52 @@ fi
 if [ -b $dev ]
 then
     # Load additional info for the block device
-    eval $(blkid -po export $dev)
+    mprobe=$(blkid -po export "$dev" 2>/dev/null)
+
+    # Optical drives persist at /dev/sr* even without media, and report eject
+    # requests as change events on an already-mounted disc, not removals.
+    if [[ $dev == /dev/sr* ]]; then
+        # No media: nothing to mount
+        if [ -z "$mprobe" ]; then
+            log "$dev is an optical drive with no disc inserted, skipping mount"
+            cleanup
+            exit 0
+        fi
+        # Already mounted: the change is an eject request, so release and eject
+        # the media instead of remounting and fighting the user's eject.
+        if findmnt -rn -S "$dev" >/dev/null 2>&1; then
+            log "$dev already mounted, ejecting on change event"
+            umount "$dev"*
+            eject "$dev" 2>/dev/null
+            cleanup
+            exit 0
+        fi
+    fi
+
+    # Parse blkid's KEY=value lines into TYPE/LABEL/UUID without eval, so an
+    # untrusted disc label can't run as shell: IFS='=' splits each line on the
+    # first '=', and printf -v assigns the value to the variable named by key.
+    while IFS='=' read -r key value; do
+        case "$key" in
+            TYPE|LABEL|UUID) printf -v "$key" '%s' "$value" ;;
+        esac
+    done <<< "$mprobe"
+
+    # No filesystem on device itself (partitioned disk): spawn mounts for partitions.
+    # This handles dongles that fire change events on the whole disk (e.g. sdc)
+    # rather than add events on each partition (e.g. sdc1).
+    if [ -z "$TYPE" ]; then
+        parts=( "${dev}"[0-9]* "${dev}p"[0-9]* )
+        for part in "${parts[@]}"; do
+            [ -b "$part" ] || continue
+            log "$dev has no filesystem; triggering mount for partition ${part##/dev/}"
+            systemctl start "media-automount@${part##/dev/}.service"
+        done
+        cleanup
+        exit 0
+    fi
+
+    # Skip devices already managed by fstab
     if grep $UUID -q /etc/fstab
     then
         log "$dev already in /etc/fstab, automount won't manage it"
@@ -57,7 +101,29 @@ then
     else
         dir="${mdir}/${LABEL:-${dev##*/}}.$TYPE"
     fi
-    mopts="$mopts,user,utf8,umask=0000,flush,uid={{ user }},gid={{ user }}"
+
+    case "$TYPE" in
+        iso9660)
+            mopts="$mopts,ro,utf8,uid={{ user }},gid={{ user }}"
+            ;;
+        udf)
+            mopts="$mopts,ro,uid={{ user }},gid={{ user }}"
+            ;;
+        vfat|msdos)
+            mopts="$mopts,utf8,uid={{ user }},gid={{ user }},errors=remount-ro,umask=0000,flush"
+            ;;
+        exfat)
+            mopts="$mopts,utf8,uid={{ user }},gid={{ user }},errors=remount-ro,umask=0000"
+            ;;
+        ntfs|ntfs-3g|ntfs3)
+            mtype=ntfs3
+            mopts="$mopts,uid={{ user }},gid={{ user }},umask=0000"
+            ;;
+        *)
+            mopts="$mopts,utf8,uid={{ user }},gid={{ user }},umask=0000,flush"
+            ;;
+    esac
+
     log "mounting device $dev in $dir"
     mkdir -p "$dir"
     if mount -t "${mtype:-auto}" -o "$mopts" "$dev" "$dir"

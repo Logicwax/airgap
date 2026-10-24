@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Write attestation/manifest.txt from the freshly built artifacts.
+#
+# The manifest is the thing developers sign. It is deliberately just sha256sum
+# output — no comments, no metadata — so anyone can check it with:
+#
+#     cd build && sha256sum -c ../attestation/manifest.txt
+#
+# The version is already carried in the filenames, so the file is self-describing
+# without needing a header that would break `sha256sum -c`.
+#
+# IF THE MANIFEST CHANGES, EXISTING SIGNATURES ARE PURGED. They attest to specific
+# bytes; once those bytes differ the signatures are not merely stale, they are
+# claims about something that no longer exists. Keeping them would let a reviewer
+# see "2 signatures present" for artifacts nobody signed.
+set -euo pipefail
+
+ATTEST="attestation"
+MANIFEST="$ATTEST/manifest.txt"
+SIGS="$ATTEST/signatures"
+
+[ $# -gt 0 ] || { echo "usage: attest-manifest <file> [file...]" >&2; exit 1; }
+
+mkdir -p "$ATTEST" "$SIGS"
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+for f in "$@"; do
+	[ -f "$f" ] || { echo "ERROR: cannot hash missing artifact: $f" >&2; exit 1; }
+	# basenames only: the manifest must not depend on where the repo is checked out
+	printf '%s  %s\n' "$(sha256sum "$f" | awk '{print $1}')" "$(basename "$f")"
+done | LC_ALL=C sort -k2 > "$tmp"
+
+if [ -f "$MANIFEST" ] && cmp -s "$tmp" "$MANIFEST"; then
+	nsigs=$(find "$SIGS" -maxdepth 1 -name '*.asc' 2>/dev/null | wc -l)
+	if [ "$nsigs" -gt 0 ]; then
+		echo "==> manifest unchanged ($(wc -l < "$MANIFEST") artifacts); $nsigs signature(s) kept"
+	else
+		echo "==> manifest unchanged ($(wc -l < "$MANIFEST") artifacts); NEEDS SIGNATURES — run 'make sign'"
+	fi
+	exit 0
+fi
+
+if [ -f "$MANIFEST" ]; then
+	n=$(find "$SIGS" -maxdepth 1 -name '*.asc' 2>/dev/null | wc -l)
+	if [ "$n" -gt 0 ]; then
+		rm -f "$SIGS"/*.asc
+		echo "==> manifest CHANGED — purged $n now-invalid signature(s)"
+	else
+		echo "==> manifest changed"
+	fi
+fi
+
+cp "$tmp" "$MANIFEST"
+echo "==> wrote $MANIFEST"

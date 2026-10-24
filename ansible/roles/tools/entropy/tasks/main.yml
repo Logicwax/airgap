@@ -1,15 +1,9 @@
 ---
-- name: Install APT packages
-  apt:
-    update_cache: yes
-    state: latest
-    pkg:
-    - haveged
-    - libftdi-dev
-    - libusb-dev
-    - rng-tools5
-    - apparmor-utils
-    - haveged
+# haveged/rng-tools5/apparmor-utils are hash-locked in
+# os-builder/airgap-rootfs-packages.list. infnoise is too — the Debian
+# package ships the driver, its own systemd unit and udev rules, replacing
+# the old git-clone + compile of waywardgeek/infnoise this role used to do
+# at provision time (pinned commit 66075cc, `make -f Makefile.linux`).
 
 - name: Apparmor / Systemd Haveged Permissions Fix
   block:
@@ -47,31 +41,10 @@
 
 - systemd: name=haveged enabled=yes masked=no
 
-- name: Infinite Noise install
-  block:
-  - git:
-      repo: 'https://github.com/waywardgeek/infnoise.git'
-      dest: /tmp/infnoise
-      version: 66075cc79988bc891d37058724839487db0d3216
-  - make:
-      chdir: /tmp/infnoise/software
-      file: Makefile.linux
-  - copy:
-      src: /tmp/infnoise/software/infnoise
-      dest: /usr/local/bin/infnoise
-      remote_src: yes
-      owner: root
-      group: root
-      mode: a+x
-  - file:
-      state: absent
-      path: /tmp/infnoise
-  - template:
-      src: infinoise.service
-      dest: /etc/systemd/system/infinoise.service
-      mode: "0644"
-  - systemd: name=infinoise enabled=yes masked=no
-  - template:
-      src: 75-infnoise.rules
-      dest: /lib/udev/rules.d/75-infnoise.rules
-      mode: "0644"
+- name: Infinite Noise TRNG
+  # The `infnoise` package provides /usr/sbin/infnoise plus its own
+  # infnoise.service and udev rules. Just enable it.
+  systemd:
+    name: infnoise
+    enabled: yes
+    masked: no

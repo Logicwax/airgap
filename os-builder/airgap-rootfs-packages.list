@@ -1,0 +1,165 @@
+# Packages installed INTO the airgap image by mmdebstrap (--include).
+# Derived from the legacy ansible roles (common + tools/*), plus what a
+# bootable live system needs. Ansible (run via the chroot connection) now
+# only does configuration — package installs happen here so they come from
+# the pinned live+snapshot sources as part of the deterministic bootstrap.
+#
+# Bare package names, one per line. `#` starts a comment anywhere on a line.
+# After editing, run `make rootfs-update` to regenerate the version + hash
+# locks — the build installs from the LOCK, not from this file, so a
+# package added here without relocking silently never appears in the image.
+
+# --- base / boot ---
+
+linux-image-amd64
+linux-headers-amd64
+dracut
+systemd
+systemd-sysv
+udev
+ca-certificates
+debian-archive-keyring
+gnupg
+gnupg2
+sudo
+parted
+apt-transport-https
+locales
+
+# --- ansible chroot connection ---
+
+python3
+python3-apt
+python3-lxml
+python3-setuptools
+python3-debian
+python3-ptyprocess
+
+# --- firmware (modern hardware / laptops; needs non-free-firmware) ---
+
+firmware-linux
+firmware-linux-nonfree
+firmware-misc-nonfree
+
+# --- removable media ---
+
+dosfstools
+exfatprogs
+ntfs-3g
+
+# --- user / shell ---
+
+zsh
+zsh-autosuggestions
+zsh-syntax-highlighting
+expect
+curl
+git
+bsdmainutils
+
+# --- smartcards / yubikey ---
+
+opensc
+opensc-pkcs11
+yubico-piv-tool
+yubikey-manager
+yubikey-personalization
+scdaemon
+u2f-host
+libccid
+libchipcard-tools
+libpcsclite1
+pcscd
+python3-pyscard
+python3-dev
+
+# --- entropy / TRNG ---
+# infnoise ships the driver, its systemd unit and udev rules (pulls
+# libftdi1).
+
+haveged
+infnoise
+rng-tools5
+apparmor-utils
+
+# --- cryptography / GPG tooling ---
+# monkeysphere is gone from Debian (last in testing 2019) — pem2openpgp
+# (vendored below, ansible/roles/tools/cryptography/files/) covers the one
+# thing this repo used it for.
+
+dirmngr
+pinentry-tty
+scrypt
+ssdeep
+seccure
+openssl
+gnutls-bin
+pgpgpg
+signing-party
+gpgv
+keyanalyze
+pgpdump
+keyutils
+pius
+libcrypt-openssl-rsa-perl
+libcrypt-openssl-bignum-perl
+
+# --- password management ---
+
+pass
+pwman3
+passwordmaker-cli
+pwgen
+apg
+libpwquality-tools
+kpcli
+cpm
+hashalot
+yapet
+otpw-bin
+donkey
+
+# --- backup ---
+
+rsync
+paperkey
+qrencode
+ssss
+duplicity
+
+# --- RFID / NFC ---
+# neard dropped: no installation candidate in trixie (removed from Debian).
+
+libnfc-bin
+libnfc-examples
+mfoc
+mfcuk
+
+# --- cryptocurrency ---
+
+electrum
+libsecp256k1-dev
+libboost-dev
+python3-mnemonic
+python3-pycryptodome
+python3-cryptography
+
+# --- utilities ---
+
+bzip2
+consolation
+emacs-nox
+gdb
+htop
+hwinfo
+psmisc
+jq
+lvm2
+nano
+ncdu
+p7zip
+strace
+tig
+tmux
+vim-nox
+xz-utils

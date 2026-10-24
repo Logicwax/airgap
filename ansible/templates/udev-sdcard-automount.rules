@@ -1,4 +1,4 @@
-KERNEL!="mmcblk[0-9]p[0-9]|sd[a-z][0-9]|sd[a-z]|sd", GOTO="sd_cards_auto_mount_end"
+KERNEL!="mmcblk[0-9]p[0-9]|sd[a-z][0-9]|sd[a-z]|sd|sr[0-9]", GOTO="sd_cards_auto_mount_end"
 
 # Ever since early systemd-udevd merge, we are forced to use some
 # hack to be able to run long lived processes from udev (which is required for
@@ -10,10 +10,17 @@ KERNEL!="mmcblk[0-9]p[0-9]|sd[a-z][0-9]|sd[a-z]|sd", GOTO="sd_cards_auto_mount_e
 # mount the device when added
 KERNEL=="mmcblk[0-9]p[0-9]|sd[a-z][0-9]", ACTION=="add", ENV{SYSTEMD_WANTS}="media-automount@%k.service"
 
+# mount cds; add covers coldplug (disc at boot), change covers hot-insert
+KERNEL=="sr[0-9]", ACTION=="add", ENV{SYSTEMD_WANTS}="media-automount@%k.service"
+KERNEL=="sr[0-9]", ACTION=="change", ENV{ID_CDROM_MEDIA}=="1", ENV{SYSTEMD_WANTS}="media-automount@%k.service"
+
 # handle sd-card dongles that only report change events
 KERNEL=="sd[a-z][0-9]|sd[a-z]|sd", ACTION=="change", ENV{SYSTEMD_WANTS}="media-automount@%k.service",RUN{program}="/usr/bin/systemctl restart media-automount@%k.service"
 
 # clean up after device removal
-KERNEL=="mmcblk[0-9]p[0-9]|sd[a-z][0-9]", ACTION=="remove", RUN{program}="/usr/bin/systemctl start media-automount@%k.service"
+KERNEL=="mmcblk[0-9]p[0-9]|sd[a-z][0-9]|sr[0-9]", ACTION=="remove", RUN{program}="/usr/bin/systemctl start media-automount@%k.service"
+
+# clean up cd-rom mount after ejection
+KERNEL=="sr[0-9]", ACTION=="change", ENV{ID_CDROM_MEDIA}!="1", RUN{program}="/usr/bin/systemctl start media-automount@%k.service"
 
 LABEL="sd_cards_auto_mount_end"

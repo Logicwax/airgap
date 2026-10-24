@@ -32,7 +32,6 @@
 - [pgpgpg]: Wrapper for using GnuPG in programs designed for PGP
 - [signing-party]: Various OpenPGP related tools for assisting with signing.
 - [pius]: Quick and easy signing of each UID on a PGP keyring
-- [ssl-cert]: Simple debconf wrapper for OpenSSL
 - [openssl]: Secure Socket Layer (SSL) binary and related cryptographic tools
 - [gpgv]: GNU privacy guard - signature verification tool
 - [pgpdump]: PGP packet visualizer
@@ -151,7 +150,6 @@
 [debsigs]: http://metadata.ftp-master.debian.org/changelogs/main/d/debsigs/unstable_changelog
 [strace]: https://strace.io/
 [gdb]: http://www.gnu.org/software/gdb/
-[ssl-cert]: http://metadata.ftp-master.debian.org/changelogs/main/s/ssl-cert/unstable_changelog
 [openssl]: https://www.openssl.org/
 [vim]: http://www.vim.org/
 [nano]: https://www.nano-editor.org/

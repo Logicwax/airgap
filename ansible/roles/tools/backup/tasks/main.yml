@@ -1,11 +1,3 @@
 ---
-- name: Install packages
-  apt:
-    update_cache: yes
-    state: latest
-    pkg:
-    - rsync
-    - paperkey
-    - qrencode
-    - ssss
-    - duplicity
+# rsync/paperkey/qrencode/ssss/duplicity are hash-locked in
+# os-builder/airgap-rootfs-packages.list. Nothing else to configure.

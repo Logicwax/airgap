@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Regenerate the Debian apt lock files (run via `make builder-update`).
+#
+# Scoped to the Debian packages this builder adds on top of the digest-pinned base
+# image. Writes a deb822 debian.sources with live mirror stanzas first and frozen
+# snapshot.debian.org stanzas second: apt fetches both indices so pinned versions
+# fallen off live are still discoverable, and prefers live for downloads (listed
+# first) to avoid snapshot bandwidth limits.
+[ -f /.dockerenv ] || { echo "Run inside the builder container"; exit 1; }
+set -e
+
+snapshot_url="http://snapshot.debian.org/archive/debian"
+snapshot_date="$(date +%Y%m%dT000000Z)"
+distro="$(grep VERSION_CODENAME /etc/os-release | cut -d= -f2)"
+
+cat > /etc/apt/sources.list.d/debian.sources <<-EOF
+	Types: deb
+	URIs: http://deb.debian.org/debian
+	Suites: ${distro} ${distro}-updates
+	Components: main
+	Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+	Check-Valid-Until: no
+
+	Types: deb
+	URIs: ${snapshot_url}/${snapshot_date}
+	Suites: ${distro} ${distro}-updates
+	Components: main
+	Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+	Check-Valid-Until: no
+
+	Types: deb
+	URIs: http://deb.debian.org/debian-security
+	Suites: ${distro}-security
+	Components: main
+	Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+	Check-Valid-Until: no
+
+	Types: deb
+	URIs: ${snapshot_url}-security/${snapshot_date}
+	Suites: ${distro}-security
+	Components: main
+	Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+	Check-Valid-Until: no
+EOF
+cp /etc/apt/sources.list.d/debian.sources /config/lock/build-toolchain-debian.sources
+
+apt-get update
+# Download (only) the packages we add plus any not-yet-present dependencies.
+apt-get install -y --download-only $(sed 's/#.*//' /config/build-toolchain-packages.list)
+
+# Hash-lock: sha256 of every downloaded .deb (supply-chain integrity).
+( cd /var/cache/apt/archives \
+	&& find . -type f -iname '*.deb' -exec sha256sum {} \; \
+	| sed 's|\./||g' | LC_ALL=C sort \
+) > /config/lock/build-toolchain-pkgs-hash-lock.txt
+
+# Version-lock: exact pkg=version for each downloaded .deb.
+for deb in /var/cache/apt/archives/*.deb; do
+	echo "$(dpkg-deb -f "$deb" Package)=$(dpkg-deb -f "$deb" Version)"
+done | LC_ALL=C sort > /config/lock/build-toolchain-pkgs-version-lock.list
+
+chown -R "${LOCAL_USER:-0}" /config/lock
+echo "Locked $(wc -l < /config/lock/build-toolchain-pkgs-version-lock.list) OS-builder packages (live + snapshot ${snapshot_date})"

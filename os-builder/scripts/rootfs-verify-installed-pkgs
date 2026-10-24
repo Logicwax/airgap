@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Assert the rootfs contains EXACTLY the locked packages — no more, no less.
+#
+# This is a different question from the one verify-deb-pkgs answers. That one checks
+# the BYTES of everything downloaded (nothing unlocked can be fetched); this one
+# checks the COMPOSITION of what ended up installed. Neither implies the other:
+#
+#   - a locked package could be downloaded (hash fine) and then not installed
+#   - a package can be installed without ever being downloaded — the app .deb is
+#     exactly that, copied in and dpkg-installed, so it is the one allowed extra
+#   - verify-deb-pkgs works on the .deb files apt downloaded; this works on what
+#     dpkg recorded, so it still holds after the apt cache is wiped
+#
+# Byte-identical rebuilds need both properties: the same inputs AND the same set.
+set -eu
+ROOTFS="$1"
+VERSION_LOCK_LIST="$2"
+ALLOW_EXTRA="${3:-}"   # exact name=version legitimately installed outside the lock
+STAGE="${4:-}"         # label for the message, e.g. "before ansible"
+
+[ -s "$VERSION_LOCK_LIST" ] || {
+	echo "ERROR: no version lock at $VERSION_LOCK_LIST — cannot verify the installed set."
+	echo "       Run 'make rootfs-update' to generate it."
+	exit 1
+}
+
+STATUS="$ROOTFS/var/lib/dpkg/status"
+[ -r "$STATUS" ] || { echo "ERROR: no dpkg status at $STATUS"; exit 1; }
+
+installed="$(mktemp)"; locked="$(mktemp)"
+trap 'rm -f "$installed" "$locked"' EXIT
+
+# dpkg's status file is blank-line-separated stanzas. Emit name=version for entries
+# whose Status says installed — "install ok installed" and "hold ok installed" count,
+# "deinstall ok config-files" does not (removed but not purged, no files on disk).
+# The END block matters: the final stanza is not always followed by a blank line.
+awk '
+	/^Package: / { p = $2 }
+	/^Version: / { v = $2 }
+	/^Status: /  { s = $0 }
+	/^$/         { if (p != "" && s ~ /[ \t]installed$/) print p "=" v; p = v = s = "" }
+	END          { if (p != "" && s ~ /[ \t]installed$/) print p "=" v }
+' "$STATUS" | LC_ALL=C sort -u > "$installed"
+
+grep -vE '^\s*(#|$)' "$VERSION_LOCK_LIST" | LC_ALL=C sort -u > "$locked"
+
+extra="$(LC_ALL=C comm -23 "$installed" "$locked")"
+missing="$(LC_ALL=C comm -13 "$installed" "$locked")"
+
+# The app package is installed from a local .deb, so it is never in the rootfs lock
+if [ -n "$ALLOW_EXTRA" ]; then
+	extra="$(printf '%s\n' "$extra" | grep -vxF "$ALLOW_EXTRA" || true)"
+fi
+extra="$(printf '%s' "$extra" | grep -v '^$' || true)"
+missing="$(printf '%s' "$missing" | grep -v '^$' || true)"
+
+label=""
+if [ -n "$STAGE" ]; then
+	label=" ($STAGE)"
+fi
+
+if [ -n "$extra" ] || [ -n "$missing" ]; then
+	echo "ERROR: the rootfs does not match the version lock exactly${label}."
+	if [ -n "$extra" ]; then
+		printf '  UNEXPECTED (installed, not locked): %s\n' $extra
+	fi
+	if [ -n "$missing" ]; then
+		printf '  MISSING   (locked, not installed): %s\n' $missing
+	fi
+	echo "       Rebuilds cannot be byte-identical while the set is unpinned."
+	echo "       If this change is intended, run 'make rootfs-update'."
+	exit 1
+fi
+
+note=""
+if [ -n "$ALLOW_EXTRA" ] && grep -qxF "$ALLOW_EXTRA" "$installed"; then
+	note=" (+$ALLOW_EXTRA)"
+fi
+echo "installed set matches the version lock exactly${label}: $(wc -l < "$locked") packages${note}"

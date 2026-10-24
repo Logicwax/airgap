@@ -1,29 +1,15 @@
 ---
-- name: Install APT packages
-  apt:
-    update_cache: yes
-    state: latest
-    pkg:
-    - gnupg
-    - gnupg2
-    - dirmngr
-    - pinentry-tty
-    - scrypt
-    - ssdeep
-    - seccure
-    - ssl-cert
-    - openssl
-    - gnutls-bin
-    - monkeysphere
-    - pgpgpg
-    - signing-party
-    - gpgv
-    - gpgv2
-    - x509-util
-    - keyanalyze
-    - pgpdump
-    - keyutils
-    - pius
+# Packages are hash-locked in os-builder/airgap-rootfs-packages.list.
+# monkeysphere was dropped from Debian (last in testing 2019); pem2openpgp
+# below is the vendored replacement for the one thing this role used it for.
+
+- name: Provide pem2openpgp without monkeysphere package
+  # Vendored copy of upstream keytrans (monkeysphere). Do not fetch
+  # from master at image-build time — that is a moving target.
+  copy:
+    src: pem2openpgp
+    dest: /usr/local/bin/pem2openpgp
+    mode: "0755"
 
 - name: Airgap MOTD timedrift warning
   block:
@@ -34,4 +20,3 @@
   - file:
       path: /etc/motd
       state: absent
-
