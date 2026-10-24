@@ -1,0 +1,6 @@
+[submodule "repos/gpg-provision"]
+	path = repos/gpg-provision
+	url = git@github.com:Logicwax/gpg-provision.git
+[submodule "repos/gpg-hd"]
+	path = repos/gpg-hd
+	url = git@github.com:Logicwax/gpg-hd.git

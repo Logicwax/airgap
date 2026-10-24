@@ -1,0 +1,45 @@
+# Tools installed INTO the os-builder image.
+#
+# BUILD-TIME ONLY — none of these ship on the USB. What goes into the shipped
+# image is rootfs-packages.list instead.
+#
+# This is the hand-edited INPUT (names only). After changing it run
+#   make os-builder-update
+# which resolves it against the pinned Debian snapshot and regenerates
+#   lock/build-toolchain-pkgs-version-lock.list   (exact pkg=version)
+#   lock/build-toolchain-pkgs-hash-lock.txt       (sha256 of every .deb)
+# Those locks are what actually get installed, and are verified at image-build
+# time — so a toolchain bump shows up as a reviewable commit diff.
+
+# --- Stage 1+2: build and configure the rootfs ---
+
+mmdebstrap                   # bootstraps the Debian rootfs (no debootstrap/installer/QEMU)
+uidmap                       # newuidmap/newgidmap, for mmdebstrap --mode=unshare user namespaces
+ansible                      # configures the rootfs over the community.general.chroot connection
+
+# --- Stage 3: turn the rootfs into a bootable image ---
+
+squashfs-tools               # mksquashfs: packs the read-only compressed root partition
+systemd-ukify                # ukify: bundles kernel + initramfs + cmdline into one EFI-stub binary
+systemd-boot-efi             # supplies that stub (/usr/lib/systemd/boot/efi/linuxx64.efi.stub)
+genimage                     # assembles the GPT disk from the partition images
+dosfstools                   # mkfs.vfat, called by genimage to build the FAT ESP
+mtools                       # mcopy, called by genimage to populate the ESP
+binutils                     # objcopy, used when assembling/inspecting the EFI binary
+e2fsprogs                    # ext4 utilities used during image assembly/inspection
+
+# --- Secure Boot: sign the UKI + ship shim/MokManager on the ESP ---
+
+sbsigntool                   # sbsign, used by `ukify --signtool=sbsign` to sign the UKI
+openssl                      # generates the signing key/cert (dev fallback)
+shim-signed                  # /usr/lib/shim/shimx64.efi.signed  — MS-signed 1st stage
+grub-efi-amd64-signed        # Debian-signed GRUB for BOOT=grub. shim trusts it via its
+                             #   embedded Debian cert, and it verifies the (also
+                             #   Debian-signed) kernel through the SHIM_LOCK protocol — so
+                             #   that path boots under Secure Boot with NO MOK enrollment.
+shim-helpers-amd64-signed    # mmx64.efi.signed (MokManager) + fbx64.efi.signed
+
+# --- support ---
+
+python3                      # ansible's interpreter, plus the lock/manifest helper scripts
+ca-certificates              # HTTPS to deb.debian.org / snapshot.debian.org

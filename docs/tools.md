@@ -22,17 +22,14 @@
 - [infnoise]: Fetch entropy from the Infinite Noise TRNG
 
 ## Cryptography
-- [gen-gpgchain]: Generate 4096RSA gpg keychain suitable for a hardware token
 - [gnupg]: Perform PGP operations for local keys or smartcards
 - [scrypt]: creating password key derivations using the Script algorithm
 - [ssdeep]: Recursive piecewise hashing tool
 - [hash-slinger]: Create TLSA records for the DANE protocol
 - [seccure]: Tools for elliptic curve cryptography
-- [monkeysphere]: Utilities for extended use cases of OpenGPG
 - [pgpgpg]: Wrapper for using GnuPG in programs designed for PGP
 - [signing-party]: Various OpenPGP related tools for assisting with signing.
 - [pius]: Quick and easy signing of each UID on a PGP keyring
-- [ssl-cert]: Simple debconf wrapper for OpenSSL
 - [openssl]: Secure Socket Layer (SSL) binary and related cryptographic tools
 - [gpgv]: GNU privacy guard - signature verification tool
 - [pgpdump]: PGP packet visualizer
@@ -151,13 +148,11 @@
 [debsigs]: http://metadata.ftp-master.debian.org/changelogs/main/d/debsigs/unstable_changelog
 [strace]: https://strace.io/
 [gdb]: http://www.gnu.org/software/gdb/
-[ssl-cert]: http://metadata.ftp-master.debian.org/changelogs/main/s/ssl-cert/unstable_changelog
 [openssl]: https://www.openssl.org/
 [vim]: http://www.vim.org/
 [nano]: https://www.nano-editor.org/
 [emacs]: https://packages.qa.debian.org/e/emacs-defaults.html
 [glances]: https://nicolargo.github.io/glances/
-[monkeysphere]: http://web.monkeysphere.info/
 [pgpgpg]: https://packages.qa.debian.org/p/pgpgpg.html
 [signing-party]: https://pgp-tools.alioth.debian.org/
 [tmux]: https://github.com/tmux/tmux/wiki
@@ -182,7 +177,6 @@
 [apg]: https://packages.qa.debian.org/a/apg.html
 [qrencode]: https://packages.qa.debian.org/q/qrencode.html
 [gen-hdwallet]: https://github.com/lrvick/airgap/blob/master/scripts/gen-hdwallet
-[gen-gpgchain]: https://github.com/lrvick/airgap/blob/master/scripts/gen-gpgchain
 [bip32-utils]: https://pypi.python.org/pypi/bip32utils/0.3-1
 [paperkey]: http://www.jabberwocky.com/software/paperkey/
 [pass]: https://www.passwordstore.org/

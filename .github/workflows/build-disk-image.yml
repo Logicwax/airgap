@@ -1,0 +1,340 @@
+---
+name: Build Disk Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'os-builder/**'
+      - 'ansible/**'
+      - 'scripts/**'
+      - 'Makefile'
+      - 'VERSION'
+      - 'attestation/**'
+      - '.github/workflows/build-disk-image.yml'
+
+permissions:
+  contents: write   # needed to create tags and upload release assets
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Two independent builds run in parallel on separate runners. Both must
+  # produce the exact same manifest before PGP signatures are checked.
+  # ---------------------------------------------------------------------------
+  build-1:
+    name: "Build 1 of 2"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Enable containerd-snapshotter
+        run: |
+          echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - name: Set up Docker Buildx (docker-container driver, pinned BuildKit)
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+          driver-opts: image=moby/buildkit:v0.26.2
+
+      - name: Verify buildx driver
+        run: |
+          DRIVER=$(docker buildx inspect | grep '^Driver:' | awk '{print $2}')
+          [ "$DRIVER" = "docker-container" ] || { echo "ERROR: wrong driver: $DRIVER"; exit 1; }
+
+      - name: Install host dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Restore os-builder image cache
+        id: cache-os-builder
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/os-builder.tar
+            .cache/os-builder.state
+          key: &os_builder_cache_key os-builder-${{ github.job }}-${{ hashFiles('os-builder/Dockerfile', 'os-builder/build-toolchain-packages.list', 'os-builder/lock/build-toolchain-debian.sources', 'os-builder/lock/build-toolchain-debian-img-hash-lock.txt', 'os-builder/lock/build-toolchain-pkgs-version-lock.list', 'os-builder/lock/build-toolchain-pkgs-hash-lock.txt', 'os-builder/scripts/**') }}
+
+      - name: Mark os-builder cache fresh
+        if: steps.cache-os-builder.outputs.cache-hit == 'true'
+        run: touch .cache/os-builder.tar .cache/os-builder.state
+
+      - name: Restore mmdebstrap rootfs cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/rootfs-*.tar
+            .cache/rootfs-*.tar.sha256
+          key: &rootfs_cache_key rootfs-${{ github.job }}-${{ hashFiles('os-builder/Dockerfile', 'os-builder/lock/**', 'os-builder/build-toolchain-packages.list', 'os-builder/airgap-rootfs-packages.list', 'os-builder/build-os.sh') }}
+
+      - name: Build airgap disk image
+        run: make build
+
+      - name: Upload manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: manifest-build-1
+          path: attestation/manifest.txt
+          retention-days: 1
+
+      - name: Get version
+        id: version
+        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Upload disk image artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: airgap-v${{ steps.version.outputs.version }}.img
+          path: build/airgap-v${{ steps.version.outputs.version }}.img
+          retention-days: 30
+          compression-level: 0
+
+  build-2:
+    name: "Build 2 of 2"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Enable containerd-snapshotter
+        run: |
+          echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - name: Set up Docker Buildx (docker-container driver, pinned BuildKit)
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+          driver-opts: image=moby/buildkit:v0.26.2
+
+      - name: Verify buildx driver
+        run: |
+          DRIVER=$(docker buildx inspect | grep '^Driver:' | awk '{print $2}')
+          [ "$DRIVER" = "docker-container" ] || { echo "ERROR: wrong driver: $DRIVER"; exit 1; }
+
+      - name: Install host dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Restore os-builder image cache
+        id: cache-os-builder
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/os-builder.tar
+            .cache/os-builder.state
+          key: *os_builder_cache_key
+
+      - name: Mark os-builder cache fresh
+        if: steps.cache-os-builder.outputs.cache-hit == 'true'
+        run: touch .cache/os-builder.tar .cache/os-builder.state
+
+      - name: Restore mmdebstrap rootfs cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/rootfs-*.tar
+            .cache/rootfs-*.tar.sha256
+          key: *rootfs_cache_key
+
+      - name: Build airgap disk image
+        run: make build
+
+      - name: Upload manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: manifest-build-2
+          path: attestation/manifest.txt
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Verify: only runs after both builds complete.
+  #   1. Both manifests must be identical (reproducibility).
+  #   2. Both must match the committed manifest.
+  #   3. PGP signature is checked (informational on PRs, required on master).
+  #   4. On a passing master build: tag the commit v$(VERSION) and publish
+  #      the .img as a GitHub release.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: "Verify reproducibility and attestation"
+    needs: [build-1, build-2]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install host dependencies
+        run: sudo apt-get update && sudo apt-get install -y gnupg jq
+
+      - name: Download manifest from build 1
+        uses: actions/download-artifact@v8
+        with:
+          name: manifest-build-1
+          path: /tmp/manifests/build-1
+
+      - name: Download manifest from build 2
+        uses: actions/download-artifact@v8
+        with:
+          name: manifest-build-2
+          path: /tmp/manifests/build-2
+
+      - name: Compare manifests between the two builds
+        run: |
+          m1=/tmp/manifests/build-1/manifest.txt
+          m2=/tmp/manifests/build-2/manifest.txt
+          {
+            echo "## Reproducibility"
+            echo
+            echo "### Build 1"; echo '```'; cat "$m1"; echo '```'
+            echo "### Build 2"; echo '```'; cat "$m2"; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if diff -u "$m1" "$m2" > /tmp/manifests/build-diff; then
+            echo "PASS: both independent builds produced identical manifests." >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "**FAIL: the two builds produced different manifests — build is NOT reproducible.**"
+              echo; echo '```diff'; cat /tmp/manifests/build-diff; echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Compare against committed manifest
+        run: |
+          m1=/tmp/manifests/build-1/manifest.txt
+          if [ ! -f attestation/manifest.txt ]; then
+            echo "No committed manifest yet — skipping comparison." >> "$GITHUB_STEP_SUMMARY"
+          elif diff -u attestation/manifest.txt "$m1" > /tmp/manifests/committed-diff; then
+            echo "PASS: both builds match the committed manifest." >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "**Builds do NOT match the committed manifest.** Run \`make clean build\` locally and commit the result."
+              echo; echo '```diff'; cat /tmp/manifests/committed-diff; echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Isolated keyring — only the key in attestation/signers/ is trusted.
+      - name: Verify PGP signature
+        id: verify
+        run: |
+          THRESHOLD=1
+          GNUPGHOME=$(mktemp -d)
+          chmod 700 "$GNUPGHOME"
+          trap 'rm -rf "$GNUPGHOME"' EXIT
+
+          for k in attestation/signers/*.asc; do
+            GNUPGHOME="$GNUPGHOME" gpg --quiet --batch --import "$k" 2>/dev/null || true
+          done
+
+          total=0; valid=0; invalid=0
+          declare -A counted=()
+          rows=""
+          shopt -s nullglob
+          for sig in attestation/signatures/*.asc; do
+            total=$((total + 1))
+            status=$(GNUPGHOME="$GNUPGHOME" gpg --batch --status-fd 1 \
+              --verify "$sig" attestation/manifest.txt 2>/dev/null || true)
+            if good=$(echo "$status" | grep -m1 '^\[GNUPG:\] GOODSIG '); then
+              keyid=$(awk '{print $3}' <<< "$good")
+              uid=$(cut -d' ' -f4- <<< "$good")
+              if [ -n "${counted[$keyid]:-}" ]; then
+                rows+="| Duplicate | \`$(basename "$sig")\` | \`$keyid\` | $uid |\n"
+              else
+                counted[$keyid]=1
+                valid=$((valid + 1))
+                rows+="| Valid | \`$(basename "$sig")\` | \`$keyid\` | $uid |\n"
+              fi
+            elif echo "$status" | grep -q '^\[GNUPG:\] NO_PUBKEY'; then
+              invalid=$((invalid + 1))
+              rows+="| Not a signer | \`$(basename "$sig")\` | — | key not in signers/ |\n"
+            else
+              invalid=$((invalid + 1))
+              rows+="| Invalid | \`$(basename "$sig")\` | — | does not verify |\n"
+            fi
+          done
+          shopt -u nullglob
+
+          if   [ $invalid -gt 0 ];          then result=INVALID
+          elif [ $total   -eq 0 ];          then result=NO_SIGNATURES
+          elif [ $valid -lt "$THRESHOLD" ]; then result=BELOW_THRESHOLD
+          else                                   result=PASSED
+          fi
+
+          {
+            echo "## Attestation"
+            echo
+            if [ $total -eq 0 ]; then
+              echo "No signatures present in \`attestation/signatures/\`."
+            else
+              echo "| Status | File | Key ID | Identity |"
+              echo "|--------|------|--------|----------|"
+              printf '%b' "$rows"
+            fi
+            case "$result" in
+              PASSED)          echo "PASSED — $valid of $THRESHOLD required signature(s) verified." ;;
+              BELOW_THRESHOLD) echo "Threshold not met." ;;
+              INVALID)         echo "FAILED — invalid or unauthorised signature(s)." ;;
+              NO_SIGNATURES)   echo "No signatures — run \`make sign\` and commit the result." ;;
+            esac
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          if [ $invalid -gt 0 ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            exit 1
+          fi
+
+      - name: Require valid signature on a release tag
+        if: github.ref == 'refs/heads/master' && steps.verify.outputs.result == 'INVALID'
+        run: |
+          echo "::error::Invalid or unauthorised PGP signature(s) found — fix before merging."
+          exit 1
+
+      - name: Tag and publish release
+        if: github.ref == 'refs/heads/master' && steps.verify.outputs.result == 'PASSED'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(cat VERSION)"
+          TAG="v${VERSION}"
+          ASSET_NAME="airgap-v${VERSION}.img"
+
+          # Download the image built by build-1.
+          gh run download "${{ github.run_id }}" --name "$ASSET_NAME" --dir /tmp/release
+
+          # Delete existing release and tag if present, then recreate from scratch.
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+          # Create and push the tag from the current commit.
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+          # --target pins the release to this commit directly, so gh doesn't
+          # need to verify the local tag against the remote — that check can
+          # spuriously fail from GitHub API propagation lag right after the
+          # git push above, even though the tag push itself succeeded.
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            --target "$GITHUB_SHA"
+          # uploads.github.com occasionally returns transient 5xx on large assets.
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$TAG" "/tmp/release/$ASSET_NAME" --clobber; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::Failed to upload $ASSET_NAME after 5 attempts."
+              exit 1
+            fi
+            echo "Upload attempt $attempt failed, retrying in 30s..."
+            sleep 30
+          done
+          echo "Tagged $TAG and published release with $ASSET_NAME" >> "$GITHUB_STEP_SUMMARY"

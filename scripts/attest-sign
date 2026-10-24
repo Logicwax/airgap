@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Sign attestation/manifest.txt with your own key and store the detached signature
+# in attestation/signatures/, named by the key that actually made it.
+#
+# The filename is taken from the SIGNATURE ITSELF, not from git config or an
+# environment variable, so it can never disagree with who really signed. Commit the
+# resulting .asc in a PR; a threshold of independent signatures is what authorises
+# the release.
+set -euo pipefail
+
+ATTEST="attestation"
+MANIFEST="$ATTEST/manifest.txt"
+SIGNERS="$ATTEST/signers"
+SIGS="$ATTEST/signatures"
+
+[ -f "$MANIFEST" ] || {
+	echo "ERROR: no $MANIFEST — run 'make build' first, so you sign what you built." >&2
+	exit 1
+}
+mkdir -p "$SIGS"
+
+echo "You are about to sign this manifest:"
+sed 's/^/    /' "$MANIFEST"
+echo
+echo "  sha256(manifest) = $(sha256sum "$MANIFEST" | awk '{print $1}')"
+echo
+echo "Sign ONLY if you built these artifacts yourself from this commit."
+echo
+
+echo "Please insert your yubikey and press enter when ready to sign"
+read -r
+
+# Optional key selection; otherwise gpg's default signing key is used.
+LOCAL_USER="${SIGNING_KEY:-$(git config --get user.signingkey 2>/dev/null || true)}"
+args=()
+[ -n "$LOCAL_USER" ] && args+=(--local-user "$LOCAL_USER")
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+gpg --yes --armor --detach-sign "${args[@]}" --output "$tmp" "$MANIFEST"
+
+# Ask the signature who signed it, rather than assuming.
+keyid="$(gpg --batch --list-packets "$tmp" 2>/dev/null \
+	| awk '/keyid /{for(i=1;i<=NF;i++) if($i=="keyid") {print $(i+1); exit}}')"
+[ -n "$keyid" ] || { echo "ERROR: could not determine the signing key id" >&2; exit 1; }
+
+out="$SIGS/manifest.$keyid.asc"
+mv "$tmp" "$out"
+trap - EXIT
+echo "==> wrote $out"
+
+# Check if the signing key is present in any of the authorised signer keys
+# by importing them all into a throwaway keyring (same approach as attest-verify).
+CHECKHOME="$(mktemp -d)"
+trap 'rm -rf "$CHECKHOME"' EXIT
+chmod 700 "$CHECKHOME"
+for k in "$SIGNERS"/*.asc; do
+	GNUPGHOME="$CHECKHOME" gpg --quiet --batch --import "$k" 2>/dev/null || true
+done
+if GNUPGHOME="$CHECKHOME" gpg --batch --list-keys "$keyid" >/dev/null 2>&1; then
+	echo "    key $keyid is an authorised signer for this repo"
+else
+	echo
+	echo "    NOTE: $keyid is not in $SIGNERS/, so this signature will NOT count"
+	echo "    toward the threshold. To authorise your key, commit its public key"
+	echo "    to $SIGNERS/ — e.g.:"
+	echo "      gpg --export --armor $keyid > $SIGNERS/$keyid.asc"
+fi

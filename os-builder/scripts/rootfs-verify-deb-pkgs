@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# mmdebstrap hook: verify the downloaded .debs against the rootfs hash lock as an
+# EXACT SET — every file present must be listed, and every listed file must be
+# present. Not a membership test: an extra .deb and a missing one both fail.
+#
+# Called ONCE, from --extract-hook. Under --variant=custom mmdebstrap downloads the
+# whole locked set in one batch before installing anything, so every .deb is on disk
+# at that moment (measured: cache=370, installed=0). It then wipes the apt cache
+# before --customize-hook, which is why verification cannot happen any later.
+set -eu
+TARGET="$1"
+STAGELOCK="$2"
+STAGE="${3:-stage}"
+
+ARCHIVES="$TARGET/var/cache/apt/archives"
+# FATAL, not a warning. This used to exit 0 with a warning, and that is exactly
+# how two repos ended up building with verification silently disabled: build-os.sh
+# pointed at lock filenames that no longer existed, so every .deb went unchecked
+# while the build looked clean. A missing lock is never a reason to skip.
+[ -s "$STAGELOCK" ] || {
+	echo "ERROR: no $STAGE hash lock at $STAGELOCK — refusing to build unverified."
+	echo "       Run 'make rootfs-update' to generate it."
+	exit 1
+}
+
+seen="$(mktemp)"; want="$(mktemp)"
+trap 'rm -f "$seen" "$want"' EXIT
+
+if compgen -G "$ARCHIVES/*.deb" > /dev/null; then
+	( cd "$ARCHIVES" && find . -maxdepth 1 -type f -name '*.deb' -exec sha256sum {} \; ) \
+		| sed 's|\./||' | LC_ALL=C sort > "$seen"
+fi
+LC_ALL=C sort "$STAGELOCK" > "$want"
+
+# Compare on the hash alone: the filename apt writes can vary (epochs become %3a),
+# and the hash is what actually pins the bytes.
+extra="$(comm -23 <(awk '{print $1}' "$seen") <(awk '{print $1}' "$want"))"
+missing="$(comm -13 <(awk '{print $1}' "$seen") <(awk '{print $1}' "$want"))"
+
+fail=0
+if [ -n "$extra" ]; then
+	echo "ERROR: $STAGE has .deb(s) that are NOT in its hash lock:"
+	while read -r h; do
+		[ -z "$h" ] && continue
+		echo "  UNEXPECTED $(grep -m1 "^$h" "$seen" | awk '{print $2}') ($h)"
+	done <<< "$extra"
+	fail=1
+fi
+if [ -n "$missing" ]; then
+	echo "ERROR: $STAGE is MISSING .deb(s) its hash lock requires:"
+	while read -r h; do
+		[ -z "$h" ] && continue
+		echo "  MISSING $(grep -m1 "^$h" "$want" | awk '{print $2}') ($h)"
+	done <<< "$missing"
+	fail=1
+fi
+if [ "$fail" -ne 0 ]; then
+	echo "       The $STAGE package set does not match the lock, so rebuilds cannot be"
+	echo "       byte-identical. If this change is intended, run 'make rootfs-update'."
+	exit 1
+fi
+
+echo "$STAGE: $(wc -l < "$seen") .deb(s) match the $STAGE hash lock exactly"

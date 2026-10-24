@@ -1,0 +1,14 @@
+---
+- name: Create udev rule to auto-detect Yubikey insertion
+  block:
+    - template:
+        src: insert-yubi.sh
+        dest: /usr/local/bin/
+        mode: "0744"
+    - template:
+        src: 69-yubikey.rules
+        dest: /etc/udev/rules.d/
+        mode: "0644"
+    - shell: |
+        udevadm control -R
+        usermod -a -G plugdev "{{ user }}"

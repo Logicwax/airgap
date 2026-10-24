@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# One-time host setup for reproducible builds: `make setup`.
+#
+# Everything here is IDEMPOTENT and checks before it changes anything — re-running
+# it on a configured host should report five OKs and touch nothing. It is the
+# executable form of the Requirements section in README.md, so the two must not
+# drift apart.
+#
+# Two of these steps are genuine host-level changes (a systemd service restart and
+# a file under /etc), so each one announces itself and neither happens silently.
+set -euo pipefail
+
+# Pinned so the builder itself is not a moving part. BuildKit performs the layer
+# construction and the rewrite-timestamp normalisation, which makes its version a
+# build input like any other; leaving it floating would be the one unpinned
+# component in an otherwise fully pinned chain.
+BUILDKIT_IMAGE="moby/buildkit:v0.26.2"
+BUILDER_NAME="reproducible-builder"
+DAEMON_JSON="/etc/docker/daemon.json"
+# capability -> package that provides it (only used to suggest an install)
+declare -A NEED=(
+	[docker]=docker.io
+	[jq]=jq
+	[git]=git
+	[mcopy]=mtools
+	[qemu-system-x86_64]=qemu-system-x86
+)
+OVMF_PATHS=(/usr/share/ovmf/OVMF.fd /usr/share/OVMF/OVMF_CODE.fd)
+
+ok()    { printf '  \033[32m✓\033[0m %s\n' "$1"; }
+todo()  { printf '  \033[33m→\033[0m %s\n' "$1"; }
+fail()  { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; }
+step()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+FORCE="${FORCE:-0}"
+confirm() {
+	[ "$FORCE" = "1" ] && return 0
+	# No controlling terminal (CI, nohup, a background job): decline quietly rather
+	# than erroring on a missing /dev/tty. FORCE=1 is the non-interactive path.
+	if [ ! -t 0 ] && [ ! -e /dev/tty ]; then
+		printf '    %s [non-interactive: skipping; re-run with FORCE=1 to apply]\n' "$1"
+		return 1
+	fi
+	printf '    %s [y/N] ' "$1"
+	local reply=""
+	if [ -e /dev/tty ]; then read -r reply </dev/tty || true; else read -r reply || true; fi
+	[[ "$reply" =~ ^[Yy]$ ]]
+}
+
+need_sudo() {
+	[ "$(id -u)" -eq 0 ] && { SUDO=""; return; }
+	command -v sudo >/dev/null || { fail "need root or sudo for this step"; exit 1; }
+	SUDO="sudo"
+}
+
+# ---------------------------------------------------------------------------
+step "1/5  Host packages"
+# ---------------------------------------------------------------------------
+missing=()
+for cmd in "${!NEED[@]}"; do
+	command -v "$cmd" >/dev/null 2>&1 || missing+=("${NEED[$cmd]}")
+done
+have_ovmf=0
+for f in "${OVMF_PATHS[@]}"; do [ -e "$f" ] && have_ovmf=1; done
+[ "$have_ovmf" -eq 1 ] || missing+=(ovmf)
+if [ ${#missing[@]} -eq 0 ]; then
+	ok "all required tools present (docker, jq, git, mtools, qemu, ovmf)"
+else
+	todo "missing: ${missing[*]}"
+	if confirm "install them with apt-get?"; then
+		need_sudo
+		$SUDO apt-get update
+		$SUDO apt-get install -y "${missing[@]}"
+		ok "installed"
+	else
+		fail "skipped — the build will fail without these"
+	fi
+fi
+
+# ---------------------------------------------------------------------------
+step "2/5  Docker access"
+# ---------------------------------------------------------------------------
+# The socket is root:docker, so having the docker CLI on PATH is not the same as
+# being able to USE it. Checking only for the binary would let this script report
+# all-green and leave `make build` to fail later with a permission error.
+if docker info >/dev/null 2>&1; then
+	ok "can talk to the docker daemon"
+else
+	if [ ! -S /var/run/docker.sock ]; then
+		fail "no /var/run/docker.sock — is the docker daemon running? (systemctl start docker)"
+	elif ! id -nG | tr ' ' '\n' | grep -qx docker; then
+		todo "$(id -un) is not in the 'docker' group, so the socket is not accessible"
+		if confirm "add $(id -un) to the docker group?"; then
+			need_sudo
+			$SUDO usermod -aG docker "$(id -un)"
+			ok "added — this does NOT affect the current shell"
+			echo "    Log out and back in (or run: newgrp docker) then re-run make setup."
+		else
+			fail "skipped — docker commands will fail with permission denied"
+		fi
+	else
+		fail "in the docker group but the daemon is unreachable — check 'systemctl status docker'"
+	fi
+fi
+
+# ---------------------------------------------------------------------------
+step "3/5  Docker containerd-snapshotter"
+# ---------------------------------------------------------------------------
+# Without it Docker uses the legacy graphdriver, which does not preserve image
+# digests through docker load, so a builder image built here can differ from the
+# same image built elsewhere.
+snapshotter_enabled() {
+	docker info -f '{{println .DriverStatus}}' 2>/dev/null | grep -qi "io.containerd" \
+		|| docker info 2>/dev/null | grep -qi "driver.*containerd"
+}
+if snapshotter_enabled; then
+	ok "containerd-snapshotter already active"
+else
+	todo "not active; needs \"features\": {\"containerd-snapshotter\": true} in $DAEMON_JSON"
+	need_sudo
+	# MERGE into any existing config rather than overwriting it — daemon.json
+	# routinely holds unrelated settings (registry mirrors, log limits, proxies)
+	# and clobbering them would be a nasty surprise.
+	if [ -f "$DAEMON_JSON" ]; then
+		if ! $SUDO jq empty "$DAEMON_JSON" 2>/dev/null; then
+			fail "$DAEMON_JSON exists but is not valid JSON — fix it by hand, refusing to touch it"
+			exit 1
+		fi
+		new="$($SUDO jq '.features."containerd-snapshotter" = true' "$DAEMON_JSON")"
+	else
+		new='{
+  "features": {
+    "containerd-snapshotter": true
+  }
+}'
+	fi
+	echo "    would write:"
+	echo "$new" | sed 's/^/      /'
+	if confirm "write $DAEMON_JSON and restart docker? (restarts running containers)"; then
+		if [ -f "$DAEMON_JSON" ]; then
+			backup="$DAEMON_JSON.bak.$(date +%s)"
+			$SUDO cp -a "$DAEMON_JSON" "$backup"
+			ok "backed up to $backup"
+		else
+			$SUDO mkdir -p "$(dirname "$DAEMON_JSON")"
+		fi
+		echo "$new" | $SUDO tee "$DAEMON_JSON" >/dev/null
+		$SUDO systemctl restart docker
+		sleep 3
+		if snapshotter_enabled; then ok "enabled and docker restarted"; else fail "restarted but still not active — check 'docker info'"; fi
+	else
+		fail "skipped — builder images may not be reproducible across hosts"
+	fi
+fi
+
+# ---------------------------------------------------------------------------
+step "4/5  Buildx builder ($BUILDER_NAME, $BUILDKIT_IMAGE)"
+# ---------------------------------------------------------------------------
+current_driver="$(docker buildx inspect "$BUILDER_NAME" 2>/dev/null | awk '/^Driver:/{print $2}')" || true
+current_image="$(docker buildx inspect "$BUILDER_NAME" 2>/dev/null | grep -oE 'moby/buildkit:[^ ",]+' | head -1)" || true
+if [ "$current_driver" = "docker-container" ] && [ "$current_image" = "$BUILDKIT_IMAGE" ]; then
+	ok "$BUILDER_NAME present with the pinned BuildKit"
+elif [ -n "$current_driver" ]; then
+	todo "$BUILDER_NAME exists (driver=$current_driver, buildkit=${current_image:-unknown}) but does not match"
+	if confirm "recreate it with driver=docker-container and $BUILDKIT_IMAGE?"; then
+		docker buildx rm "$BUILDER_NAME" >/dev/null 2>&1 || true
+		docker buildx create --name "$BUILDER_NAME" --driver docker-container \
+			--driver-opt "image=$BUILDKIT_IMAGE" --use >/dev/null
+		docker buildx inspect --bootstrap "$BUILDER_NAME" >/dev/null
+		ok "recreated"
+	else
+		fail "skipped — reproducible output needs the docker-container driver"
+	fi
+else
+	todo "creating $BUILDER_NAME"
+	docker buildx create --name "$BUILDER_NAME" --driver docker-container \
+		--driver-opt "image=$BUILDKIT_IMAGE" --use >/dev/null
+	docker buildx inspect --bootstrap "$BUILDER_NAME" >/dev/null
+	ok "created and bootstrapped"
+fi
+# `make build` fails on any other active builder, so select it here too.
+docker buildx use "$BUILDER_NAME" 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+step "5/5  Verify"
+# ---------------------------------------------------------------------------
+rc=0
+driver="$(docker buildx inspect 2>/dev/null | awk '/^Driver:/{print $2}')"
+[ "$driver" = "docker-container" ] && ok "active buildx driver: $driver" || { fail "active buildx driver is '$driver'"; rc=1; }
+docker info >/dev/null 2>&1 && ok "docker daemon reachable" || { fail "cannot reach the docker daemon"; rc=1; }
+snapshotter_enabled && ok "containerd-snapshotter active" || { fail "containerd-snapshotter not active"; rc=1; }
+for cmd in "${!NEED[@]}"; do
+	command -v "$cmd" >/dev/null 2>&1 || { fail "missing tool: $cmd (${NEED[$cmd]})"; rc=1; }
+done
+have_ovmf=0
+for f in "${OVMF_PATHS[@]}"; do [ -e "$f" ] && have_ovmf=1; done
+[ "$have_ovmf" -eq 1 ] || { fail "missing OVMF firmware (ovmf)"; rc=1; }
+[ "$rc" -eq 0 ] && ok "all required tools present"
+
+echo
+if [ "$rc" -eq 0 ]; then
+	echo "Host is ready. Next: make build"
+else
+	echo "Setup incomplete — see the ✗ lines above." >&2
+fi
+exit "$rc"

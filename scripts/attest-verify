@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Verify the detached signatures in attestation/signatures/ against the current
+# attestation/manifest.txt, and report whether the threshold is met.
+#
+#     attest-verify [THRESHOLD]      (default 1)
+#
+# Verification uses an ISOLATED KEYRING built only from attestation/signers/. This
+# matters: verifying with the caller's personal keyring would accept a signature
+# from ANY key they happen to trust, so "2 valid signatures" could be two strangers.
+# Here a signature only counts if it was made by a key committed to this repo.
+#
+# Exit 0 only when the threshold is met AND every signature present is valid — an
+# invalid or unknown-key signature fails the run even if enough good ones exist,
+# because its presence means something is wrong that a human should look at.
+set -euo pipefail
+
+THRESHOLD="${1:-1}"
+ATTEST="attestation"
+MANIFEST="$ATTEST/manifest.txt"
+SIGNERS="$ATTEST/signers"
+SIGS="$ATTEST/signatures"
+
+[ -f "$MANIFEST" ] || {
+	echo "ERROR: no $MANIFEST — run 'make build' first." >&2
+	exit 1
+}
+compgen -G "$SIGNERS/*.asc" >/dev/null || {
+	echo "ERROR: no signer public keys in $SIGNERS/" >&2
+	exit 1
+}
+
+# Throwaway keyring: only the repo's signers are known to it.
+GNUPGHOME="$(mktemp -d)"
+export GNUPGHOME
+chmod 700 "$GNUPGHOME"
+trap 'rm -rf "$GNUPGHOME"' EXIT
+
+known=0
+for k in "$SIGNERS"/*.asc; do
+	gpg --quiet --batch --import "$k" 2>/dev/null || {
+		echo "ERROR: $k is not a usable public key" >&2; exit 1; }
+	known=$((known + 1))
+done
+
+echo "manifest : $MANIFEST"
+echo "           $(sha256sum "$MANIFEST" | awk '{print $1}')"
+echo "signers  : $known authorised key(s)"
+echo
+
+valid=0 invalid=0 total=0
+declare -A counted=()
+
+shopt -s nullglob
+for sig in "$SIGS"/*.asc; do
+	total=$((total + 1))
+	status="$(gpg --batch --status-fd 1 --verify "$sig" "$MANIFEST" 2>/dev/null || true)"
+	if good="$(printf '%s\n' "$status" | grep -m1 '^\[GNUPG:\] GOODSIG ')"; then
+		keyid="$(awk '{print $3}' <<<"$good")"
+		uid="$(cut -d' ' -f4- <<<"$good")"
+		# One key, one vote: a second signature from the same key adds nothing.
+		if [ -n "${counted[$keyid]:-}" ]; then
+			printf '  ~ DUPLICATE  %s  %s (already counted)\n' "$keyid" "$uid"
+		else
+			counted[$keyid]=1
+			valid=$((valid + 1))
+			printf '  ✓ VALID      %s  %s\n' "$keyid" "$uid"
+		fi
+	elif printf '%s\n' "$status" | grep -q '^\[GNUPG:\] NO_PUBKEY'; then
+		kid="$(printf '%s\n' "$status" | awk '/NO_PUBKEY/{print $3}')"
+		printf '  ✗ NOT A SIGNER  key %s is not in %s/ — %s\n' "$kid" "$SIGNERS" "$(basename "$sig")"
+		invalid=$((invalid + 1))
+	else
+		printf '  ✗ INVALID    %s (does not verify against this manifest)\n' "$(basename "$sig")"
+		invalid=$((invalid + 1))
+	fi
+done
+shopt -u nullglob
+
+echo
+if [ "$total" -eq 0 ]; then
+	echo "No signatures present in $SIGS/."
+fi
+echo "valid signatures: $valid / threshold $THRESHOLD"
+
+rc=0
+if [ "$invalid" -gt 0 ]; then
+	echo "RESULT: FAILED — $invalid signature(s) are invalid or from unauthorised keys." >&2
+	rc=1
+fi
+if [ "$valid" -lt "$THRESHOLD" ]; then
+	echo "RESULT: THRESHOLD NOT MET — need $THRESHOLD independent signer(s), have $valid." >&2
+	rc=1
+fi
+if [ "$rc" -eq 0 ]; then
+	echo "RESULT: threshold met — $valid of $THRESHOLD required signer(s) verified."
+fi
+exit "$rc"

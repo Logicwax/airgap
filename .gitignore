@@ -1,4 +1,9 @@
-.*
-dist
 build
-ansible/*.retry
+.cache
+os-builder/secureboot/
+ansible/main.retry
+*DS_Store
+*#
+._*
+.idea
+*.iml

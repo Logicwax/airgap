@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Regenerate the Debian ROOTFS package lock (run via `make rootfs-update`).
+
+[ -f /.dockerenv ] || { echo "Run inside the builder container"; exit 1; }
+set -eu
+
+CONFIG=/config
+LOCK="$CONFIG/lock"
+: "${SOURCE_DATE_EPOCH:=1}"
+export SOURCE_DATE_EPOCH
+
+pkg_names() {
+	sed 's/#.*//; s/[[:space:]]*$//' "$@" | grep -v '^$' | paste -sd, -
+}
+
+work=/tmp/rootfs-lock-airgap
+rm -rf "$work"; mkdir -p "$work"
+echo "==> resolving airgap Debian package closure"
+mmdebstrap \
+	--mode=unshare \
+	--variant=important \
+	--format=directory \
+	--include="$(pkg_names "$CONFIG/airgap-rootfs-packages.list")" \
+	--aptopt='APT::Keep-Downloaded-Packages "true"' \
+	--extract-hook="mkdir -p '$work/archives' && cp -n \"\$1\"/var/cache/apt/archives/*.deb '$work/archives/' 2>/dev/null || true" \
+	--customize-hook="mkdir -p '$work/archives' && cp -n \"\$1\"/var/cache/apt/archives/*.deb '$work/archives/' 2>/dev/null || true" \
+	trixie \
+	"$work/root" \
+	"$LOCK/rootfs-debian.sources"
+
+python3 - "$work/root/var/lib/dpkg/status" "$LOCK/airgap-rootfs-pkgs-version-lock.list" <<'PY'
+import sys
+status, out = sys.argv[1], sys.argv[2]
+pkgs = []
+for block in open(status, encoding="utf-8", errors="replace").read().split("\n\n"):
+    d = {}
+    for line in block.splitlines():
+        if line[:1].isspace() or ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        d[k.strip()] = v.strip()
+    if d.get("Package") and "installed" in d.get("Status", ""):
+        pkgs.append(f"{d['Package']}={d['Version']}")
+open(out, "w").write("\n".join(sorted(pkgs)) + "\n")
+print(f"locked {len(pkgs)} {out.split('/')[-1]} packages")
+PY
+
+if compgen -G "$work/archives/*.deb" > /dev/null; then
+	( cd "$work/archives" \
+		&& find . -type f -iname '*.deb' -exec sha256sum {} \; \
+		| sed 's|\./||g' | LC_ALL=C sort \
+	) > "$LOCK/airgap-rootfs-pkgs-hash-lock.txt"
+	echo "hashed $(wc -l < "$LOCK/airgap-rootfs-pkgs-hash-lock.txt") .deb files (airgap)"
+else
+	echo "ERROR: no .debs were captured — refusing to leave a stale hash lock." >&2
+	exit 1
+fi
+rm -rf "$work"
+
+snapshot_url="http://snapshot.debian.org/archive/debian"
+snapshot_date="$(date +%Y%m%dT000000Z)"
+distro="$(grep VERSION_CODENAME /etc/os-release | cut -d= -f2)"
+
+cat > "$LOCK/rootfs-debian.sources" <<-EOF
+	Types: deb
+	URIs: http://deb.debian.org/debian
+	Suites: ${distro} ${distro}-updates
+	Components: main contrib non-free non-free-firmware
+	Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+	Check-Valid-Until: no
+
+	Types: deb
+	URIs: ${snapshot_url}/${snapshot_date}
+	Suites: ${distro} ${distro}-updates
+	Components: main contrib non-free non-free-firmware
+	Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+	Check-Valid-Until: no
+
+	Types: deb
+	URIs: http://deb.debian.org/debian-security
+	Suites: ${distro}-security
+	Components: main contrib non-free non-free-firmware
+	Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+	Check-Valid-Until: no
+
+	Types: deb
+	URIs: ${snapshot_url}-security/${snapshot_date}
+	Suites: ${distro}-security
+	Components: main contrib non-free non-free-firmware
+	Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+	Check-Valid-Until: no
+EOF
+echo "==> rootfs snapshot date: ${snapshot_date}"
+
+chown -R "${LOCAL_USER:-0}" "$LOCK"

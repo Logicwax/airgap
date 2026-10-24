@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Install the version/hash-locked Debian packages, run during `docker build`.
+#
+# Overwrites the base image's sources with the locked deb822 toolchain file (live +
+# snapshot failover), downloads exactly the versions in
+# build-toolchain-pkgs-version-lock.list from the snapshot, verifies every .deb against
+# build-toolchain-pkgs-hash-lock.txt (fails on any mismatch), then installs.
+set -e
+
+cp /config/lock/build-toolchain-debian.sources /etc/apt/sources.list.d/debian.sources
+apt-get update
+
+# Download the exact locked versions (retry through snapshot.d.o throttling).
+until apt-get install --download-only --allow-downgrades -y \
+		$(cat /config/lock/build-toolchain-pkgs-version-lock.list); do
+	echo "apt download failed (snapshot throttling?); retrying in 60s..."
+	sleep 60
+done
+
+# Verify every downloaded .deb against the hash-lock before installing anything.
+( cd /var/cache/apt/archives \
+	&& find . -type f -iname '*.deb' -exec sha256sum {} \; \
+	| sed 's|\./||g' | LC_ALL=C sort \
+) > /tmp/toolchain-hash-compare.txt
+if ! diff -q /config/lock/build-toolchain-pkgs-hash-lock.txt /tmp/toolchain-hash-compare.txt >/dev/null; then
+	echo "Package hash mismatch — possible supply-chain tampering!"
+	diff /config/lock/build-toolchain-pkgs-hash-lock.txt /tmp/toolchain-hash-compare.txt || true
+	exit 1
+fi
+
+apt-get install --allow-downgrades -y $(sed 's/#.*//' /config/build-toolchain-packages.list)
+rm -rf /var/cache/apt/archives/*.deb /var/lib/apt/lists/* /tmp/*

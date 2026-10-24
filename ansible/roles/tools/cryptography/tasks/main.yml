@@ -1,29 +1,5 @@
 ---
-- name: Install APT packages
-  apt:
-    update_cache: yes
-    state: latest
-    pkg:
-    - gnupg
-    - gnupg2
-    - dirmngr
-    - pinentry-tty
-    - scrypt
-    - ssdeep
-    - seccure
-    - ssl-cert
-    - openssl
-    - gnutls-bin
-    - monkeysphere
-    - pgpgpg
-    - signing-party
-    - gpgv
-    - gpgv2
-    - x509-util
-    - keyanalyze
-    - pgpdump
-    - keyutils
-    - pius
+# Packages are hash-locked in os-builder/airgap-rootfs-packages.list.
 
 - name: Airgap MOTD timedrift warning
   block:
@@ -34,4 +10,3 @@
   - file:
       path: /etc/motd
       state: absent
-

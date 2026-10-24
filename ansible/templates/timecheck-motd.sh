@@ -11,6 +11,7 @@ echo "This machine's clock is currently set to: $(date) "$GREEN"($(TZ=America/Lo
 
 echo "1) First set the timezone with the command "$RED"sudo timedatectl set-timezone "$BRED"America/Los_Angeles"$OFF"  (For a list of timezones use "$RED"timedatectl list-timezones"$OFF")\n"
 
+
 echo "2) Set time with the command "$RED"sudo timedatectl set-time \""$BRED"YYYY-MM-DD HH:MM:SS"$OFF$RED"\""$OFF" (default is in UTC if timezone from step #1 isn't set)\n\n"
 
 echo "Run the command "$RED"help"$OFF" to repeat this message.\n"

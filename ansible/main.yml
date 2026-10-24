@@ -1,15 +1,16 @@
 ---
 - hosts: all
   gather_facts: yes
+  environment:
+    SOURCE_DATE_EPOCH: "1"
+    TZ: UTC
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
   roles:
     - common
-    #- kernel
     - tools/entropy
-    - tools/hsm
-    - tools/cryptocurrency
-    #- tools/rfid
+    - tools/yubikey
+    #- tools/rfid  # disabled: unpinned git-clone at build time, see ansible/roles/tools/rfid/tasks/main.yml
     - tools/cryptography
     - tools/backup
-    - tools/password-management
-    - tools/utilities
     - cleanup
