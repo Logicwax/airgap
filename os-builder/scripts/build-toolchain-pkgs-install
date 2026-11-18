@@ -36,9 +36,20 @@ fi
 # debian.sources and silently pick a newer, unverified version — exactly what
 # the hash lock above exists to prevent. Installing the exact versions from
 # build-toolchain-pkgs-version-lock.list with --no-download forces apt to use
-# only the already-verified cache; --reinstall makes that true even for
-# packages the base image already ships at the same version.
-apt-get install --no-download --reinstall --allow-downgrades -y \
+# only the already-verified cache.
+#
+# Deliberately NOT --reinstall here (unlike the download-only step above):
+# this is the step that actually unpacks files and runs maintainer scripts/
+# triggers, and forcing a reinstall of the base image's own already-correct
+# packages re-runs postinst/triggers (ldconfig, debconf, etc.) across the
+# whole closure for no integrity benefit — dpkg already refuses to report a
+# package as "installed" at a version whose unpack/configure didn't
+# complete, and the dpkg-query diff below independently proves the final
+# installed set matches the lock exactly. Without --reinstall, apt no-ops
+# on anything already satisfied at the locked version, which is what kept
+# this reproducible before the lock was widened to cover the base image's
+# own closure.
+apt-get install --no-download --allow-downgrades -y \
 	-o Dpkg::Options::=--force-confdef \
 	-o Dpkg::Options::=--force-confold \
 	$(cat /config/lock/build-toolchain-pkgs-version-lock.list)
