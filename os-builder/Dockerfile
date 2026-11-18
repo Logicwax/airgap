@@ -21,7 +21,9 @@ ENV SOURCE_DATE_EPOCH=1 \
 # and the rootfs-* locks) is read at RUN time from the /repo bind mount, so
 # copying it here would bake stale duplicates into the image AND make every edit
 # to those files invalidate this layer — forcing a full toolchain reinstall.
-COPY build-toolchain-packages.list /config/
+# build-toolchain-packages.list itself is not copied either: the install comes
+# from build-toolchain-pkgs-version-lock.list (the hash-verified set); the
+# plain list is only read at lock-generation time (via a bind mount), never here.
 COPY lock/build-toolchain-debian.sources /config/lock/
 COPY lock/build-toolchain-pkgs-version-lock.list /config/lock/
 COPY lock/build-toolchain-pkgs-hash-lock.txt /config/lock/

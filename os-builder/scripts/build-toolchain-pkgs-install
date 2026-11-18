@@ -11,7 +11,10 @@ cp /config/lock/build-toolchain-debian.sources /etc/apt/sources.list.d/debian.so
 apt-get update
 
 # Download the exact locked versions (retry through snapshot.d.o throttling).
-until apt-get install --download-only --allow-downgrades -y \
+# --reinstall matters now that the lock covers the base image's own closure
+# too (see build-toolchain-pkgs-update): without it, apt skips downloading —
+# and hashing — anything the base image already has at the locked version.
+until apt-get install --download-only --reinstall --allow-downgrades -y \
 		$(cat /config/lock/build-toolchain-pkgs-version-lock.list); do
 	echo "apt download failed (snapshot throttling?); retrying in 60s..."
 	sleep 60
@@ -28,5 +31,29 @@ if ! diff -q /config/lock/build-toolchain-pkgs-hash-lock.txt /tmp/toolchain-hash
 	exit 1
 fi
 
-apt-get install --allow-downgrades -y $(sed 's/#.*//' /config/build-toolchain-packages.list)
+# Install only the .deb files whose hashes were verified above. Installing by
+# bare package name here would let apt re-resolve against the live mirror in
+# debian.sources and silently pick a newer, unverified version — exactly what
+# the hash lock above exists to prevent. Installing the exact versions from
+# build-toolchain-pkgs-version-lock.list with --no-download forces apt to use
+# only the already-verified cache; --reinstall makes that true even for
+# packages the base image already ships at the same version.
+apt-get install --no-download --reinstall --allow-downgrades -y \
+	-o Dpkg::Options::=--force-confdef \
+	-o Dpkg::Options::=--force-confold \
+	$(cat /config/lock/build-toolchain-pkgs-version-lock.list)
+
+# Fail the build if the installed package set or any version differs from the
+# lock. This also catches dependencies that apt may have installed in addition
+# to the locked set. This exact-set comparison is only valid because the lock
+# covers the base image's own package closure as well as the packages we add
+# (see build-toolchain-pkgs-update) — a lock scoped to just the add-ons would
+# make every base-image package look "unexpected" here.
+dpkg-query -W -f='${db:Status-Abbrev} ${Package}=${Version}\n' \
+	| awk '$1 == "ii" { print $2 }' \
+	| LC_ALL=C sort > /tmp/toolchain-version-compare.txt
+LC_ALL=C sort /config/lock/build-toolchain-pkgs-version-lock.list > /tmp/toolchain-version-lock-sorted.txt
+diff /tmp/toolchain-version-lock-sorted.txt /tmp/toolchain-version-compare.txt \
+	|| (echo "Installed packages do not match the package version lock!" && false)
+
 rm -rf /var/cache/apt/archives/*.deb /var/lib/apt/lists/* /tmp/*

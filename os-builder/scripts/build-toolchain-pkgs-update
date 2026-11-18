@@ -45,7 +45,16 @@ EOF
 cp /etc/apt/sources.list.d/debian.sources /config/lock/build-toolchain-debian.sources
 
 apt-get update
-# Download (only) the packages we add plus any not-yet-present dependencies.
+
+# Download the .debs for the base image's OWN installed closure (so the lock
+# covers the whole toolchain image, not just the add-ons below) plus the
+# packages this builder adds on top of it and any not-yet-present dependencies.
+# Covering the base image's own packages too is what lets
+# build-toolchain-pkgs-install assert an exact match between the lock and what
+# dpkg reports after install.
+apt-get install -y --download-only --reinstall $( \
+	dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package}\n' \
+	| awk '/^ii/{print $2}' )
 apt-get install -y --download-only $(sed 's/#.*//' /config/build-toolchain-packages.list)
 
 # Hash-lock: sha256 of every downloaded .deb (supply-chain integrity).
